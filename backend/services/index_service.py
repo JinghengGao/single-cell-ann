@@ -104,6 +104,8 @@ class IndexService:
                     search_index = cpu_index
                     mode = "cpu"
 
+            search_index.search(vectors[:1], 1)
+
             index_dir.mkdir(parents=True, exist_ok=True)
             index_path = index_dir / "liver_ivf_flat.faiss"
             faiss.write_index(cpu_index, str(index_path))

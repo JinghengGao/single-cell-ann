@@ -200,3 +200,40 @@ def test_combined_and_separate_indexes_return_dataset_aware_results():
         )
         assert separate.status_code == 200
         assert separate.get_json()["built_indexes"][0]["build_mode"] == "separate"
+
+
+def test_visualization_filters_stats_and_gene_expression_overlay():
+    with runtime_tmpdir() as tmp_path:
+        app = create_app(make_test_config(tmp_path))
+        client = app.test_client()
+        headers = auth_headers(client, "admin")
+
+        client.post("/api/datasets/scan", headers=headers)
+        client.post("/api/datasets/load", json={"dataset_id": "liver"}, headers=headers)
+
+        options = client.get("/api/visualization/options?dataset_ids=liver&gene_query=ALB")
+        assert options.status_code == 200
+        options_payload = options.get_json()
+        assert "cell_type" in options_payload["categorical_fields"]
+        assert any(match["gene_name"] == "ALB" for match in options_payload["gene_matches"])
+
+        filtered = client.get(
+            "/api/visualization/cells?dataset_ids=liver&limit=30&color_by=cell_type&filter_cell_type=hepatocyte"
+        )
+        assert filtered.status_code == 200
+        filtered_payload = filtered.get_json()
+        assert filtered_payload["stats"]["sampled_points"] == 30
+        assert filtered_payload["stats"]["metadata_counts"]["cell_type"][0]["value"] == "hepatocyte"
+        assert all(point["cell_type"] == "hepatocyte" for point in filtered_payload["points"])
+
+        expression = client.get(
+            "/api/visualization/cells?dataset_ids=liver&limit=25&color_by=gene:ALB&filter_cell_type=hepatocyte"
+        )
+        assert expression.status_code == 200
+        expression_payload = expression.get_json()
+        assert expression_payload["gene"][0]["gene_name"] == "ALB"
+        assert expression_payload["stats"]["expression"]["expressing_count"] > 0
+        assert all("expression" in point for point in expression_payload["points"])
+
+        missing = client.get("/api/visualization/cells?dataset_ids=liver&limit=10&color_by=gene:NOT_A_REAL_GENE")
+        assert missing.status_code == 404

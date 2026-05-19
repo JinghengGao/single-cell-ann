@@ -39,6 +39,13 @@ def main() -> None:
 
     vis = assert_ok(client.get("/api/visualization/cells?limit=10"), "visualization sample")
     print("Visualization points:", len(vis["points"]))
+    vis_options = assert_ok(client.get("/api/visualization/options?dataset_ids=liver&gene_query=ALB"), "visualization options")
+    print("Gene matches:", len(vis_options["gene_matches"]))
+    gene_vis = assert_ok(
+        client.get("/api/visualization/cells?dataset_ids=liver&limit=10&color_by=gene:ALB"),
+        "visualization gene overlay",
+    )
+    print("Expression summary:", gene_vis["stats"]["expression"])
 
     if not health["faiss"]["available"]:
         print("[SKIP] index/search: FAISS is unavailable in this Python environment")

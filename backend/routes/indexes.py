@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
+from backend.routes.permissions import require_roles
 from backend.services.index_service import index_service
 
 
@@ -9,6 +10,7 @@ index_bp = Blueprint("index", __name__)
 
 
 @index_bp.post("/build")
+@require_roles("researcher", "data_manager", "admin")
 def build_index():
     payload = request.get_json(silent=True) or {}
     nlist = int(payload.get("nlist") or current_app.config["FAISS_NLIST"])
@@ -41,6 +43,7 @@ def index_status():
 
 
 @index_bp.post("/switch")
+@require_roles("researcher", "data_manager", "admin")
 def switch_index():
     payload = request.get_json(silent=True) or {}
     index_id = str(payload.get("index_id") or "").strip()

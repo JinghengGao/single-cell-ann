@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, jsonify, request
 
+from backend.routes.permissions import require_roles
 from backend.services.search_service import search_service
 
 
@@ -9,6 +10,7 @@ search_bp = Blueprint("search", __name__)
 
 
 @search_bp.post("/search")
+@require_roles("normal_user", "researcher", "data_manager", "admin")
 def search():
     payload = request.get_json(silent=True) or {}
     cell_id = str(payload.get("cell_id") or "").strip()

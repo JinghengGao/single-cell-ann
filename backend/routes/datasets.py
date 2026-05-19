@@ -4,6 +4,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, request
 
+from backend.routes.permissions import require_roles
 from backend.services.data_service import data_service
 
 
@@ -16,6 +17,7 @@ def list_datasets():
 
 
 @datasets_bp.post("/scan")
+@require_roles("data_manager", "admin")
 def scan_datasets():
     return jsonify(
         data_service.scan_dataset_files(
@@ -29,6 +31,7 @@ def scan_datasets():
 
 
 @datasets_bp.post("/upload")
+@require_roles("data_manager", "admin")
 def upload_dataset():
     uploaded_file = request.files.get("file")
     if uploaded_file is None:
@@ -40,6 +43,7 @@ def upload_dataset():
 
 
 @datasets_bp.post("/load")
+@require_roles("researcher", "data_manager", "admin")
 def load_dataset():
     payload = request.get_json(silent=True) or {}
     dataset_id = str(payload.get("dataset_id") or "").strip() or None
@@ -63,6 +67,7 @@ def load_dataset():
 
 
 @datasets_bp.post("/validate")
+@require_roles("data_manager", "admin")
 def validate_datasets():
     payload = request.get_json(silent=True) or {}
     dataset_ids = payload.get("dataset_ids") or []
@@ -85,6 +90,7 @@ def dataset_detail(dataset_id: str):
 
 
 @datasets_bp.post("/<dataset_id>/validate")
+@require_roles("data_manager", "admin")
 def validate_dataset(dataset_id: str):
     try:
         return jsonify(data_service.validate_dataset(dataset_id, current_app.config["DATASET_REGISTRY_PATH"]))

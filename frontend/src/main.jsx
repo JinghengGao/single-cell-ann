@@ -43,6 +43,34 @@ useEcharts([GridComponent, TooltipComponent, ScatterChart, CanvasRenderer]);
 
 const palette = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed", "#0891b2", "#be123c", "#4d7c0f"];
 
+const ROLE_LABELS = {
+  normal_user: "普通用户",
+  researcher: "研究人员",
+  data_manager: "数据维护者",
+  admin: "管理员",
+};
+
+const ROLE_PERMISSIONS = {
+  normal_user: { search: true, visualize: true },
+  researcher: { loadDataset: true, buildIndex: true, switchIndex: true, search: true, visualize: true },
+  data_manager: {
+    manageDatasets: true,
+    loadDataset: true,
+    buildIndex: true,
+    switchIndex: true,
+    search: true,
+    visualize: true,
+  },
+  admin: {
+    manageDatasets: true,
+    loadDataset: true,
+    buildIndex: true,
+    switchIndex: true,
+    search: true,
+    visualize: true,
+  },
+};
+
 function getErrorMessage(error) {
   return error?.response?.data?.message || error?.response?.data?.error || error?.message || "请求失败";
 }
@@ -50,6 +78,10 @@ function getErrorMessage(error) {
 function formatNumber(value) {
   if (value === null || value === undefined || value === "") return "-";
   return Number(value).toLocaleString("zh-CN");
+}
+
+function permissionFor(role, key) {
+  return Boolean(ROLE_PERMISSIONS[role]?.[key]);
 }
 
 function StatusBadge({ value, tone = "neutral" }) {
@@ -197,10 +229,18 @@ function App() {
   const [topK, setTopK] = useState(10);
   const [searchResult, setSearchResult] = useState(null);
   const [authMode, setAuthMode] = useState("login");
-  const [authForm, setAuthForm] = useState({ username: "demo_user", password: "secret123", role: "researcher" });
+  const [authForm, setAuthForm] = useState({ username: "admin_user", password: "secret123", role: "admin" });
   const [uploadFile, setUploadFile] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+
+  const role = auth.user?.role;
+  const canManageDatasets = permissionFor(role, "manageDatasets");
+  const canLoadDataset = permissionFor(role, "loadDataset");
+  const canBuildIndex = permissionFor(role, "buildIndex");
+  const canSwitchIndex = permissionFor(role, "switchIndex");
+  const canSearch = permissionFor(role, "search");
+  const canVisualize = permissionFor(role, "visualize");
 
   const selectedDatasets = useMemo(
     () => datasets.filter((dataset) => selectedDatasetIds.includes(dataset.dataset_id)),
@@ -210,30 +250,30 @@ function App() {
   const indexOptions = indexStatus?.indexes || [];
   const activeIndex = indexOptions.find((item) => item.index_id === (selectedIndexId || indexStatus?.active_index_id)) || indexStatus;
 
-  async function refreshStatus() {
-    const [healthData, authData, datasetList, currentDataset, indexData] = await Promise.all([
-      getHealth(),
-      getCurrentUser(),
-      listDatasets(),
-      getCurrentDataset(),
-      getIndexStatus(),
-    ]);
-    setHealth(healthData);
-    setAuth(authData);
-    setDatasets(datasetList.datasets || []);
+  async function loadWorkspace() {
+    const [datasetList, currentDataset, indexData] = await Promise.all([listDatasets(), getCurrentDataset(), getIndexStatus()]);
+    const nextDatasets = datasetList.datasets || [];
+    setDatasets(nextDatasets);
     setDatasetSummary(currentDataset);
     setIndexStatus(indexData);
     setSelectedIndexId(indexData.active_index_id || indexData.index_id || "");
 
     const nextSelected = selectedDatasetIds.length
       ? selectedDatasetIds
-      : (indexData.dataset_ids?.length ? indexData.dataset_ids : datasetList.datasets?.slice(0, 1).map((item) => item.dataset_id)) || [];
+      : (indexData.dataset_ids?.length ? indexData.dataset_ids : nextDatasets.slice(0, 1).map((item) => item.dataset_id)) || [];
     if (!selectedDatasetIds.length && nextSelected.length) {
       setSelectedDatasetIds(nextSelected);
-      const first = datasetList.datasets.find((item) => item.dataset_id === nextSelected[0]);
+      const first = nextDatasets.find((item) => item.dataset_id === nextSelected[0]);
       setQueryDatasetId(first?.dataset_id || "");
       setQueryCellId(first?.sample_cell_ids?.[0] || queryCellId);
     }
+  }
+
+  async function refreshStatus() {
+    const [healthData, authData] = await Promise.all([getHealth(), getCurrentUser()]);
+    setHealth(healthData);
+    setAuth(authData);
+    await loadWorkspace();
   }
 
   useEffect(() => {
@@ -271,7 +311,7 @@ function App() {
   }
 
   async function refreshVisualization(datasetIds = selectedDatasetIds) {
-    if (!datasetIds.length) return;
+    if (!canVisualize || !datasetIds.length) return;
     const visData = await getVisualizationCells(5000, datasetIds);
     setVisPoints(visData.points || []);
   }
@@ -282,8 +322,8 @@ function App() {
       if (authMode === "register") {
         await registerUser(authForm);
       }
-      const result = await loginUser(authForm);
-      setAuth({ authenticated: true, user: result.user });
+      await loginUser(authForm);
+      await refreshStatus();
     });
   }
 
@@ -291,6 +331,9 @@ function App() {
     await runAction("auth", async () => {
       await logoutUser();
       setAuth({ authenticated: false, user: null });
+      setSearchResult(null);
+      setVisPoints([]);
+      await loadWorkspace();
     });
   }
 
@@ -405,78 +448,87 @@ function App() {
       <section className="top-grid">
         <ModulePanel title="用户信息模块" icon={<User size={20} />}>
           {auth.authenticated ? (
-            <div className="user-summary">
+            <>
               <StatGrid
                 rows={[
                   { label: "用户", value: auth.user?.username },
-                  { label: "角色", value: auth.user?.role },
+                  { label: "身份", value: ROLE_LABELS[role] || role },
                   { label: "FAISS", value: faissMode },
                 ]}
               />
+              <div className="permission-strip">
+                <StatusBadge value={canManageDatasets ? "可管理数据" : "不可管理数据"} tone={canManageDatasets ? "good" : "neutral"} />
+                <StatusBadge value={canBuildIndex ? "可构建索引" : "不可构建索引"} tone={canBuildIndex ? "good" : "neutral"} />
+                <StatusBadge value={canSearch ? "可查询" : "不可查询"} tone={canSearch ? "good" : "bad"} />
+              </div>
               <button className="secondary-button" onClick={handleLogout} disabled={Boolean(busy)}>
                 <LogOut size={18} />
-                退出
+                退出登录
               </button>
-            </div>
+            </>
           ) : (
-            <form className="auth-form" onSubmit={handleAuthSubmit}>
-              <div className="segmented-control">
-                <button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>
-                  登录
-                </button>
-                <button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>
-                  注册
-                </button>
-              </div>
-              <label>
-                用户名
-                <input value={authForm.username} onChange={(event) => setAuthForm({ ...authForm, username: event.target.value })} />
-              </label>
-              <label>
-                密码
-                <input
-                  type="password"
-                  value={authForm.password}
-                  onChange={(event) => setAuthForm({ ...authForm, password: event.target.value })}
-                />
-              </label>
-              {authMode === "register" ? (
+            <>
+              <p className="permission-note">未登录可以预览系统页面；扫描、上传、校验、加载、建索引和查询需要登录后按身份授权。</p>
+              <form className="auth-form" onSubmit={handleAuthSubmit}>
+                <div className="segmented-control">
+                  <button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>
+                    登录
+                  </button>
+                  <button type="button" className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>
+                    注册
+                  </button>
+                </div>
                 <label>
-                  角色
-                  <select value={authForm.role} onChange={(event) => setAuthForm({ ...authForm, role: event.target.value })}>
-                    <option value="researcher">研究人员</option>
-                    <option value="normal_user">普通用户</option>
-                    <option value="data_manager">数据维护者</option>
-                    <option value="admin">管理员</option>
-                  </select>
+                  用户名
+                  <input value={authForm.username} onChange={(event) => setAuthForm({ ...authForm, username: event.target.value })} />
                 </label>
-              ) : null}
-              <button type="submit" disabled={Boolean(busy)}>
-                {busy === "auth" ? <LoaderCircle size={18} className="spin" /> : <LogIn size={18} />}
-                {authMode === "register" ? "注册并登录" : "登录"}
-              </button>
-            </form>
+                <label>
+                  密码
+                  <input
+                    type="password"
+                    value={authForm.password}
+                    onChange={(event) => setAuthForm({ ...authForm, password: event.target.value })}
+                  />
+                </label>
+                {authMode === "register" ? (
+                  <label>
+                    身份
+                    <select value={authForm.role} onChange={(event) => setAuthForm({ ...authForm, role: event.target.value })}>
+                      <option value="admin">管理员</option>
+                      <option value="data_manager">数据维护者</option>
+                      <option value="researcher">研究人员</option>
+                      <option value="normal_user">普通用户</option>
+                    </select>
+                  </label>
+                ) : null}
+                <button type="submit" disabled={Boolean(busy)}>
+                  {busy === "auth" ? <LoaderCircle size={18} className="spin" /> : <LogIn size={18} />}
+                  {authMode === "register" ? "注册并登录" : "登录"}
+                </button>
+              </form>
+            </>
           )}
         </ModulePanel>
 
         <ModulePanel title="数据管理模块" icon={<Database size={20} />}>
+          {!canManageDatasets ? <p className="permission-note">当前身份只能查看数据集，不能扫描、上传或校验数据。</p> : null}
           <div className="button-row">
-            <button onClick={handleScanDatasets} disabled={Boolean(busy)}>
+            <button onClick={handleScanDatasets} disabled={Boolean(busy) || !canManageDatasets}>
               {busy === "scan" ? <LoaderCircle size={18} className="spin" /> : <RefreshCw size={18} />}
               扫描本地
             </button>
-            <button onClick={handleValidateDatasets} disabled={Boolean(busy) || !selectedDatasetIds.length}>
+            <button onClick={handleValidateDatasets} disabled={Boolean(busy) || !canManageDatasets || !selectedDatasetIds.length}>
               {busy === "validate" ? <LoaderCircle size={18} className="spin" /> : <Database size={18} />}
               校验选中
             </button>
-            <button onClick={handleLoadSelectedDataset} disabled={Boolean(busy) || selectedDatasetIds.length !== 1}>
+            <button onClick={handleLoadSelectedDataset} disabled={Boolean(busy) || !canLoadDataset || selectedDatasetIds.length !== 1}>
               {busy === "load" ? <LoaderCircle size={18} className="spin" /> : <Play size={18} />}
               加载单个
             </button>
           </div>
           <div className="upload-row">
-            <input type="file" accept=".h5ad" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} />
-            <button onClick={handleUploadDataset} disabled={Boolean(busy) || !uploadFile}>
+            <input type="file" accept=".h5ad" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} disabled={!canManageDatasets} />
+            <button onClick={handleUploadDataset} disabled={Boolean(busy) || !canManageDatasets || !uploadFile}>
               {busy === "upload" ? <LoaderCircle size={18} className="spin" /> : <Upload size={18} />}
               上传
             </button>
@@ -530,6 +582,7 @@ function App() {
 
       <section className="middle-grid">
         <ModulePanel title="索引构建模块" icon={<GitBranch size={20} />}>
+          {!canBuildIndex ? <p className="permission-note">当前身份不能构建或切换索引。</p> : null}
           <StatGrid
             rows={[
               { label: "当前索引", value: activeIndex?.index_id || "-" },
@@ -543,26 +596,26 @@ function App() {
           <div className="control-grid">
             <label>
               构建模式
-              <select value={indexMode} onChange={(event) => setIndexMode(event.target.value)}>
+              <select value={indexMode} onChange={(event) => setIndexMode(event.target.value)} disabled={!canBuildIndex}>
                 <option value="combined">联合索引</option>
                 <option value="separate">独立索引</option>
               </select>
             </label>
             <label>
               nlist
-              <input type="number" min="1" value={nlist} onChange={(event) => setNlist(Number(event.target.value))} />
+              <input type="number" min="1" value={nlist} onChange={(event) => setNlist(Number(event.target.value))} disabled={!canBuildIndex} />
             </label>
             <label>
               nprobe
-              <input type="number" min="1" value={nprobe} onChange={(event) => setNprobe(Number(event.target.value))} />
+              <input type="number" min="1" value={nprobe} onChange={(event) => setNprobe(Number(event.target.value))} disabled={!canBuildIndex} />
             </label>
           </div>
           <div className="button-row">
-            <button onClick={handleBuildIndex} disabled={Boolean(busy) || !selectedDatasetIds.length}>
+            <button onClick={handleBuildIndex} disabled={Boolean(busy) || !canBuildIndex || !selectedDatasetIds.length}>
               {busy === "index" ? <LoaderCircle size={18} className="spin" /> : <GitBranch size={18} />}
               构建索引
             </button>
-            <select value={selectedIndexId} onChange={handleSwitchIndex} disabled={!indexOptions.length || Boolean(busy)}>
+            <select value={selectedIndexId} onChange={handleSwitchIndex} disabled={!canSwitchIndex || !indexOptions.length || Boolean(busy)}>
               <option value="">选择索引</option>
               {indexOptions.map((item) => (
                 <option key={item.index_id} value={item.index_id}>
@@ -594,7 +647,7 @@ function App() {
               Top-K
               <input type="number" min="1" max="100" value={topK} onChange={(event) => setTopK(Number(event.target.value))} />
             </label>
-            <button type="submit" disabled={Boolean(busy) || !queryCellId || !activeIndex?.ready}>
+            <button type="submit" disabled={Boolean(busy) || !canSearch || !queryCellId || !activeIndex?.ready}>
               {busy === "search" ? <LoaderCircle size={18} className="spin" /> : <Play size={18} />}
               查询
             </button>
@@ -649,7 +702,11 @@ function App() {
         title="可视化展示模块"
         icon={<Activity size={20} />}
         actions={
-          <button className="secondary-button" onClick={() => runAction("visual", () => refreshVisualization(selectedDatasetIds))} disabled={Boolean(busy) || !selectedDatasetIds.length}>
+          <button
+            className="secondary-button"
+            onClick={() => runAction("visual", () => refreshVisualization(selectedDatasetIds))}
+            disabled={Boolean(busy) || !canVisualize || !selectedDatasetIds.length}
+          >
             {busy === "visual" ? <LoaderCircle size={18} className="spin" /> : <RefreshCw size={18} />}
             刷新 UMAP
           </button>

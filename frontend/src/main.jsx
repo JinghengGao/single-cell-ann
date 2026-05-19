@@ -186,6 +186,13 @@ function UmapChart({ points, queryCell, hits, colorBy, stats, onPickCell }) {
           },
         ]
       : [];
+    const lineData =
+      queryCell?.umap && hitData.length
+        ? hitData.map((hit) => ({
+            coords: [queryCell.umap, hit.value],
+            name: `${queryCell.cell_id}-${hit.name}`,
+          }))
+        : [];
 
     chart.setOption({
       animation: false,
@@ -228,6 +235,15 @@ function UmapChart({ points, queryCell, hits, colorBy, stats, onPickCell }) {
           type: "scatter",
           symbolSize: 5,
           data: isExpression ? data.map((item) => ({ ...item, value: [item.value[0], item.value[1], item.expression || 0] })) : data,
+        },
+        {
+          name: "top-k-links",
+          type: "lines",
+          coordinateSystem: "cartesian2d",
+          data: lineData,
+          lineStyle: { color: "#f97316", opacity: 0.32, width: 1.2, type: "dashed" },
+          symbol: "none",
+          z: 2,
         },
         {
           name: "top-k",
@@ -289,6 +305,7 @@ function App() {
   const [visualSampleStrategy, setVisualSampleStrategy] = useState("even");
   const [visualFilters, setVisualFilters] = useState({ cell_type: "", disease: "", AgeGroup: "", tissue: "" });
   const [visualStats, setVisualStats] = useState(null);
+  const [visualGeneQuery, setVisualGeneQuery] = useState("ALB");
   const [queryCellId, setQueryCellId] = useState("");
   const [queryDatasetId, setQueryDatasetId] = useState("");
   const [topK, setTopK] = useState(10);
@@ -314,6 +331,23 @@ function App() {
 
   const indexOptions = indexStatus?.indexes || [];
   const activeIndex = indexOptions.find((item) => item.index_id === (selectedIndexId || indexStatus?.active_index_id)) || indexStatus;
+  const topKTypeStats = useMemo(() => {
+    const counts = new Map();
+    (searchResult?.hits || []).forEach((hit) => {
+      const key = hit.cell_type || "-";
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return Array.from(counts.entries()).map(([value, count]) => ({ value, count }));
+  }, [searchResult]);
+  const topKDistanceStats = useMemo(() => {
+    const distances = (searchResult?.hits || []).map((hit) => hit.distance).filter((value) => Number.isFinite(value));
+    if (!distances.length) return null;
+    return {
+      min: Math.min(...distances),
+      max: Math.max(...distances),
+      mean: distances.reduce((sum, value) => sum + value, 0) / distances.length,
+    };
+  }, [searchResult]);
 
   async function loadWorkspace() {
     const [datasetList, currentDataset, indexData] = await Promise.all([listDatasets(), getCurrentDataset(), getIndexStatus()]);
@@ -375,17 +409,18 @@ function App() {
     return datasetList.datasets || [];
   }
 
-  async function refreshVisualization(datasetIds = selectedDatasetIds) {
+  async function refreshVisualization(datasetIds = selectedDatasetIds, overrides = {}) {
     if (!canVisualize || !datasetIds.length) return;
+    const colorBy = overrides.colorBy || visualColorBy;
     const filters = Object.fromEntries(
       Object.entries(visualFilters)
         .filter(([, value]) => value)
         .map(([fieldName, value]) => [fieldName, [value]]),
     );
     const [optionsData, visData] = await Promise.all([
-      getVisualizationOptions({ datasetIds }),
+      getVisualizationOptions({ datasetIds, geneQuery: visualGeneQuery }),
       getVisualizationCells(visualLimit, datasetIds, {
-        colorBy: visualColorBy,
+        colorBy,
         filters,
         sampleStrategy: visualSampleStrategy,
       }),
@@ -402,6 +437,43 @@ function App() {
 
   function clearVisualFilters() {
     setVisualFilters({ cell_type: "", disease: "", AgeGroup: "", tissue: "" });
+  }
+
+  function handleApplyGeneColor() {
+    const geneQuery = visualGeneQuery.trim();
+    if (!geneQuery) {
+      setError("请输入基因名或 Ensembl ID");
+      return;
+    }
+    const colorBy = `gene:${geneQuery}`;
+    setVisualColorBy(colorBy);
+    runAction("visual", () => refreshVisualization(selectedDatasetIds, { colorBy }));
+  }
+
+  function exportVisualizationCsv() {
+    const rows = [
+      ["dataset_id", "dataset_name", "cell_id", "x", "y", "cell_type", "disease", "AgeGroup", "tissue", "color_value", "expression"],
+      ...visPoints.map((point) => [
+        point.dataset_id,
+        point.dataset_name,
+        point.cell_id,
+        point.x,
+        point.y,
+        point.cell_type || "",
+        point.disease || "",
+        point.AgeGroup || "",
+        point.tissue || "",
+        point.color_value ?? "",
+        point.expression ?? "",
+      ]),
+    ];
+    const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "umap_points.csv";
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   async function handleAuthSubmit(event) {
@@ -832,6 +904,13 @@ function App() {
                 <option value="random">随机</option>
               </select>
             </label>
+            <label>
+              基因
+              <input value={visualGeneQuery} onChange={(event) => setVisualGeneQuery(event.target.value)} disabled={!canVisualize} />
+            </label>
+            <button className="secondary-button" onClick={handleApplyGeneColor} disabled={!canVisualize || !selectedDatasetIds.length}>
+              基因上色
+            </button>
             {metadataFields.map((fieldName) => (
               <label key={fieldName}>
                 {colorFieldLabels[fieldName]}
@@ -851,6 +930,9 @@ function App() {
             ))}
             <button className="secondary-button" onClick={clearVisualFilters} disabled={!canVisualize}>
               清除过滤
+            </button>
+            <button className="secondary-button" onClick={exportVisualizationCsv} disabled={!canVisualize || !visPoints.length}>
+              导出 CSV
             </button>
           </div>
 
@@ -880,6 +962,13 @@ function App() {
               </div>
               <div className="legend-list">
                 <h3>{colorByLabel(visualColorBy)}</h3>
+                {visualStats?.expression ? (
+                  <div className="expression-summary">
+                    <span>表达细胞 {(visualStats.expression.expressing_fraction * 100).toFixed(1)}%</span>
+                    <span>均值 {visualStats.expression.mean.toFixed(3)}</span>
+                    <span>范围 {visualStats.expression.min.toFixed(2)} - {visualStats.expression.max.toFixed(2)}</span>
+                  </div>
+                ) : null}
                 {(visualStats?.by_color?.length ? visualStats.by_color : visualStats?.by_dataset || []).slice(0, 12).map((item, index) => (
                   <div className="legend-row" key={`${item.value}-${index}`}>
                     <span className="legend-swatch" style={{ backgroundColor: palette[index % palette.length] }} />
@@ -887,6 +976,27 @@ function App() {
                     <strong>{formatNumber(item.count)}</strong>
                   </div>
                 ))}
+              </div>
+              <div className="legend-list">
+                <h3>Top-K 组成</h3>
+                {topKTypeStats.length ? (
+                  topKTypeStats.map((item, index) => (
+                    <div className="legend-row" key={`${item.value}-${index}`}>
+                      <span className="legend-swatch" style={{ backgroundColor: palette[index % palette.length] }} />
+                      <span>{item.value}</span>
+                      <strong>{item.count}</strong>
+                    </div>
+                  ))
+                ) : (
+                  <p className="mini-empty">暂无查询结果</p>
+                )}
+                {topKDistanceStats ? (
+                  <div className="distance-summary">
+                    <span>最小 {topKDistanceStats.min.toFixed(4)}</span>
+                    <span>均值 {topKDistanceStats.mean.toFixed(4)}</span>
+                    <span>最大 {topKDistanceStats.max.toFixed(4)}</span>
+                  </div>
+                ) : null}
               </div>
             </aside>
           </div>

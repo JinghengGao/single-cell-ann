@@ -434,6 +434,25 @@ tbody tr:last-child td {
   border-radius: 3px;
 }
 
+.expression-summary,
+.distance-summary {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 8px;
+  border: 1px solid #e6edf3;
+  border-radius: 6px;
+  padding: 8px;
+  color: #52616f;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
+.mini-empty {
+  margin: 0;
+  color: #667788;
+  font-size: 12px;
+}
+
 .spin {
   animation: spin 0.9s linear infinite;
 }

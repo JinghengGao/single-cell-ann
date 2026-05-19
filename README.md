@@ -7,7 +7,7 @@
 - 数据管理模块：扫描 `data/*.h5ad`、`data/datasets/*.h5ad`，上传 `.h5ad` 到 `data/uploads/`，校验 `X_pca`、`X_umap`、`obs/_index`。
 - 索引构建模块：基于 FAISS IVF_FLAT 构建 ANN 索引，支持联合索引和独立索引，GPU 可用时优先使用 GPU。
 - 查询检索模块：按 `cell_id` 执行 Top-K 相似细胞搜索，返回距离、相似度、细胞类型、疾病、年龄组、组织、UMAP 坐标和所属数据集。
-- 可视化展示模块：展示 UMAP 抽样点，高亮查询细胞和 Top-K 命中结果。
+- 可视化展示模块：升级为 UMAP 分析工作台，支持元信息着色、过滤、统计摘要、基因表达叠加、Top-K 连线、点击选点和 CSV 导出。
 - 用户信息模块：未登录可预览主页，登录后按身份开放操作；支持本地演示级注册、登录、退出和当前用户显示。
 
 ## 权限模型
@@ -71,6 +71,7 @@ npm run dev
 4. 在“索引构建模块”选择“联合索引”或“独立索引”，点击“构建索引”。
 5. 在“查询检索模块”选择查询数据集，输入 `cell_id` 和 Top-K，点击“查询”。
 6. 在结果表格和“可视化展示模块”查看相似细胞和 UMAP 高亮。
+7. 在可视化工具条中切换着色字段、过滤细胞类型/疾病/年龄/组织，输入基因名如 `ALB` 后点击“基因上色”查看表达量叠加。
 
 ## API 摘要
 
@@ -92,6 +93,7 @@ npm run dev
 - `GET /api/index/status`
 - `POST /api/search`
 - `GET /api/visualization/cells?limit=5000`
+- `GET /api/visualization/options?dataset_ids=liver&gene_query=ALB`
 
 ## 验证
 

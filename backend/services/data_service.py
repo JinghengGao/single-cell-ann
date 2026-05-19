@@ -206,6 +206,25 @@ class DataService:
                 self._save_registry(registry_path)
             return record.summary()
 
+    def validate_datasets(self, dataset_ids: list[str], registry_path: Path) -> dict[str, Any]:
+        with self._lock:
+            self._load_registry(registry_path)
+            target_ids = dataset_ids or sorted(self._records.keys())
+            results = []
+            errors = []
+            for dataset_id in target_ids:
+                try:
+                    results.append(self.validate_dataset(dataset_id, registry_path))
+                except Exception as exc:
+                    errors.append({"dataset_id": dataset_id, "message": str(exc)})
+            return {
+                "requested_count": len(target_ids),
+                "validated_count": len(results),
+                "error_count": len(errors),
+                "datasets": results,
+                "errors": errors,
+            }
+
     def load_h5ad(
         self,
         path: Path | None = None,

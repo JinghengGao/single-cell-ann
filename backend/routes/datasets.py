@@ -62,6 +62,15 @@ def load_dataset():
         return jsonify({"error": "invalid_dataset", "message": str(exc)}), 400
 
 
+@datasets_bp.post("/validate")
+def validate_datasets():
+    payload = request.get_json(silent=True) or {}
+    dataset_ids = payload.get("dataset_ids") or []
+    if not isinstance(dataset_ids, list):
+        return jsonify({"error": "invalid_request", "message": "dataset_ids must be a list"}), 400
+    return jsonify(data_service.validate_datasets([str(item) for item in dataset_ids], current_app.config["DATASET_REGISTRY_PATH"]))
+
+
 @datasets_bp.get("/current")
 def current_dataset():
     return jsonify(data_service.snapshot.summary())

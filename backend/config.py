@@ -9,7 +9,11 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 
 class Config:
     BASE_DIR = BASE_DIR
+    DATA_DIR = Path(os.getenv("SCANN_DATA_DIR", BASE_DIR / "data"))
     DATA_PATH = Path(os.getenv("SCANN_DATA_PATH", BASE_DIR / "data" / "liver.h5ad"))
+    DATASET_LIBRARY_DIR = Path(os.getenv("SCANN_DATASET_LIBRARY_DIR", BASE_DIR / "data" / "datasets"))
+    UPLOAD_DIR = Path(os.getenv("SCANN_UPLOAD_DIR", BASE_DIR / "data" / "uploads"))
+    DATASET_REGISTRY_PATH = Path(os.getenv("SCANN_DATASET_REGISTRY_PATH", BASE_DIR / "data" / "registry.json"))
     INDEX_DIR = Path(os.getenv("SCANN_INDEX_DIR", BASE_DIR / "indexes"))
     LOG_DIR = Path(os.getenv("SCANN_LOG_DIR", BASE_DIR / "logs"))
     RUNTIME_DIR = Path(os.getenv("SCANN_RUNTIME_DIR", BASE_DIR / "runtime"))

@@ -13,8 +13,12 @@ venv/
 
 # Data and generated runtime files
 data/*.h5ad
+data/datasets/*.h5ad
+data/uploads/*.h5ad
+data/registry.json
 indexes/
 logs/
+runtime/
 !indexes/.gitkeep
 !logs/.gitkeep
 *.faiss

@@ -52,6 +52,12 @@ select {
 
 button {
   cursor: pointer;
+  line-height: 1.2;
+}
+
+svg {
+  display: block;
+  flex: 0 0 auto;
 }
 
 button:disabled,
@@ -167,6 +173,7 @@ p {
 .quiet-icon {
   width: 30px;
   height: 30px;
+  min-height: 30px;
   border-color: transparent;
   color: var(--sidebar-muted);
   background: transparent;
@@ -442,9 +449,9 @@ p {
 }
 
 .login-copy span,
-.page-section-header span,
-.active-index-title span,
-.result-drawer header span {
+.page-section-header > div > span,
+.active-index-copy > span,
+.result-drawer header > div > span {
   display: block;
   margin-top: 8px;
   color: var(--muted);
@@ -674,6 +681,13 @@ p {
   padding: 8px 2px;
 }
 
+.account-copy {
+  display: grid;
+  gap: 3px;
+  align-content: center;
+  min-width: 0;
+}
+
 .account-avatar {
   display: grid;
   place-items: center;
@@ -684,23 +698,24 @@ p {
   background: rgba(255, 255, 255, 0.09);
 }
 
-.account-row strong,
-.account-row span {
+.account-copy strong,
+.account-copy span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.account-row strong {
+.account-copy strong {
   color: #ffffff;
   font-size: 12px;
+  line-height: 1.2;
 }
 
-.account-row div span {
-  margin-top: 3px;
+.account-copy span {
   color: var(--sidebar-muted);
   font-size: 10px;
+  line-height: 1.2;
 }
 
 .workspace-main {
@@ -733,7 +748,7 @@ p {
   line-height: 1.1;
 }
 
-.workspace-header div > span {
+.workspace-heading > span {
   display: block;
   margin-top: 5px;
   color: var(--muted);
@@ -747,6 +762,8 @@ p {
 }
 
 .readonly-chip {
+  display: inline-flex;
+  align-items: center;
   border: 1px solid #e3d5bd;
   border-radius: 999px;
   padding: 5px 9px;
@@ -754,6 +771,7 @@ p {
   background: #fbf4e8;
   font-size: 11px !important;
   font-weight: 750;
+  line-height: 1;
 }
 
 .workspace-content {
@@ -877,6 +895,30 @@ p {
   display: grid;
   gap: 6px;
   padding: 13px 14px;
+}
+
+.view-sync-row {
+  display: grid;
+  gap: 3px;
+  border-left: 3px solid var(--green);
+  padding: 6px 8px;
+  background: var(--green-soft);
+}
+
+.view-sync-row.pending {
+  border-left-color: #d49a43;
+  background: #fbf4e8;
+}
+
+.view-sync-row span {
+  color: var(--ink-strong);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.view-sync-row small {
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .rail-action-grid {
@@ -1054,6 +1096,15 @@ p {
 
 .compact-results {
   display: grid;
+}
+
+.filtered-overlay-note {
+  border-left: 3px solid var(--orange);
+  padding: 6px 7px;
+  color: #9b5a34;
+  background: var(--orange-soft);
+  font-size: 10px;
+  line-height: 1.5;
 }
 
 .compact-result-row {
@@ -1354,6 +1405,10 @@ tbody tr:hover {
   border-radius: 6px;
 }
 
+.registry-table tbody tr {
+  cursor: pointer;
+}
+
 .checkbox-column {
   width: 54px;
 }
@@ -1581,8 +1636,8 @@ tbody tr:hover {
   height: 36px;
 }
 
-.index-list-row strong,
-.index-list-row span {
+.index-list-copy strong,
+.index-list-copy span {
   display: block;
 }
 
@@ -1591,7 +1646,7 @@ tbody tr:hover {
   font-size: 12px;
 }
 
-.index-list-row div > span {
+.index-list-copy > span {
   margin-top: 4px;
   color: var(--muted);
   font-size: 11px;
@@ -1603,7 +1658,7 @@ tbody tr:hover {
   gap: 4px;
 }
 
-.index-list-meta > span {
+.index-list-meta > span:not(.status-badge) {
   color: var(--muted);
   font-size: 10px;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   buildIndex,
@@ -22,6 +22,33 @@ import {
 import { EMPTY_FILTERS, getErrorMessage, permissionFor } from "../constants";
 
 const EMPTY_AUTH = { authenticated: false, user: null };
+const VISUAL_LIMIT_MIN = 100;
+const VISUAL_LIMIT_MAX = 5000;
+const TOP_K_MIN = 1;
+const TOP_K_MAX = 100;
+const INDEX_PARAMETER_MIN = 1;
+const INDEX_PARAMETER_MAX = 65536;
+
+function clampInteger(value, min, max, fallback) {
+  if (value === "" || value === null || value === undefined) return fallback;
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(number)));
+}
+
+function normalizeFilters(filters = EMPTY_FILTERS) {
+  return Object.fromEntries(Object.keys(EMPTY_FILTERS).map((fieldName) => [fieldName, filters[fieldName] || ""]));
+}
+
+function sameDatasetIds(left = [], right = []) {
+  if (left.length !== right.length) return false;
+  const rightIds = new Set(right);
+  return left.every((datasetId) => rightIds.has(datasetId));
+}
+
+function sameFilters(left = EMPTY_FILTERS, right = EMPTY_FILTERS) {
+  return Object.keys(EMPTY_FILTERS).every((fieldName) => (left[fieldName] || "") === (right[fieldName] || ""));
+}
 
 export function useWorkspace() {
   const [health, setHealth] = useState(null);
@@ -41,6 +68,13 @@ export function useWorkspace() {
   const [visualSampleStrategy, setVisualSampleStrategy] = useState("even");
   const [visualFilters, setVisualFilters] = useState(EMPTY_FILTERS);
   const [visualStats, setVisualStats] = useState(null);
+  const [appliedVisualState, setAppliedVisualState] = useState({
+    datasetIds: [],
+    colorBy: "cell_type",
+    limit: 5000,
+    sampleStrategy: "even",
+    filters: { ...EMPTY_FILTERS },
+  });
   const [visualGeneQuery, setVisualGeneQuery] = useState("ALB");
   const [queryCellId, setQueryCellId] = useState("");
   const [queryDatasetId, setQueryDatasetId] = useState("");
@@ -51,6 +85,8 @@ export function useWorkspace() {
   const [error, setError] = useState("");
   const [connectionError, setConnectionError] = useState("");
   const [initializing, setInitializing] = useState(true);
+  const [visualLoading, setVisualLoading] = useState(false);
+  const visualRequestId = useRef(0);
 
   const role = auth.user?.role;
   const canManageDatasets = permissionFor(role, "manageDatasets");
@@ -63,6 +99,19 @@ export function useWorkspace() {
   const selectedDatasets = useMemo(
     () => datasets.filter((dataset) => selectedDatasetIds.includes(dataset.dataset_id)),
     [datasets, selectedDatasetIds],
+  );
+  const appliedVisualDatasets = useMemo(
+    () => datasets.filter((dataset) => appliedVisualState.datasetIds.includes(dataset.dataset_id)),
+    [appliedVisualState.datasetIds, datasets],
+  );
+  const visualDirty = useMemo(
+    () =>
+      !sameDatasetIds(selectedDatasetIds, appliedVisualState.datasetIds) ||
+      visualColorBy !== appliedVisualState.colorBy ||
+      clampInteger(visualLimit, VISUAL_LIMIT_MIN, VISUAL_LIMIT_MAX, 5000) !== appliedVisualState.limit ||
+      visualSampleStrategy !== appliedVisualState.sampleStrategy ||
+      !sameFilters(visualFilters, appliedVisualState.filters),
+    [appliedVisualState, selectedDatasetIds, visualColorBy, visualFilters, visualLimit, visualSampleStrategy],
   );
   const indexOptions = indexStatus?.indexes || [];
   const activeIndex =
@@ -108,30 +157,57 @@ export function useWorkspace() {
   }
 
   async function fetchVisualization(datasetIds = selectedDatasetIds, overrides = {}) {
-    if (!datasetIds.length) {
+    const requestId = ++visualRequestId.current;
+    const nextDatasetIds = [...new Set(datasetIds.filter(Boolean))];
+    if (!nextDatasetIds.length) {
       setVisPoints([]);
       setVisOptions(null);
       setVisualStats(null);
+      setAppliedVisualState({
+        datasetIds: [],
+        colorBy: visualColorBy,
+        limit: clampInteger(visualLimit, VISUAL_LIMIT_MIN, VISUAL_LIMIT_MAX, 5000),
+        sampleStrategy: visualSampleStrategy,
+        filters: normalizeFilters(visualFilters),
+      });
+      setVisualLoading(false);
       return null;
     }
     const colorBy = overrides.colorBy ?? visualColorBy;
-    const filters = overrides.filters ?? visualFilters;
+    const filters = normalizeFilters(overrides.filters ?? visualFilters);
     const geneQuery = overrides.geneQuery ?? visualGeneQuery;
-    const limit = overrides.limit ?? visualLimit;
+    const limit = clampInteger(overrides.limit ?? visualLimit, VISUAL_LIMIT_MIN, VISUAL_LIMIT_MAX, 5000);
     const sampleStrategy = overrides.sampleStrategy ?? visualSampleStrategy;
     const filterParams = Object.fromEntries(
       Object.entries(filters)
         .filter(([, value]) => value)
         .map(([fieldName, value]) => [fieldName, [value]]),
     );
-    const [optionsData, visData] = await Promise.all([
-      getVisualizationOptions({ datasetIds, geneQuery }),
-      getVisualizationCells(limit, datasetIds, { colorBy, filters: filterParams, sampleStrategy }),
-    ]);
-    setVisOptions(optionsData);
-    setVisPoints(visData.points || []);
-    setVisualStats(visData.stats || null);
-    return visData;
+    setVisualLoading(true);
+    try {
+      const [optionsData, visData] = await Promise.all([
+        getVisualizationOptions({ datasetIds: nextDatasetIds, geneQuery }),
+        getVisualizationCells(limit, nextDatasetIds, { colorBy, filters: filterParams, sampleStrategy }),
+      ]);
+      if (requestId !== visualRequestId.current) return null;
+      setVisOptions(optionsData);
+      setVisPoints(visData.points || []);
+      setVisualStats(visData.stats || null);
+      setVisualLimit(limit);
+      setAppliedVisualState({
+        datasetIds: nextDatasetIds,
+        colorBy,
+        limit,
+        sampleStrategy,
+        filters,
+      });
+      return visData;
+    } catch (visualError) {
+      if (requestId !== visualRequestId.current) return null;
+      throw visualError;
+    } finally {
+      if (requestId === visualRequestId.current) setVisualLoading(false);
+    }
   }
 
   async function fetchWorkspaceStatus({ refreshVisual = true } = {}) {
@@ -145,6 +221,7 @@ export function useWorkspace() {
     const nextDatasets = datasetList.datasets || [];
     const nextSelectedIds = resolveSelectedDatasets(nextDatasets, indexData);
     setHealth(healthData);
+    setConnectionError("");
     setAuth(authData);
     setDatasets(nextDatasets);
     setDatasetSummary(currentDataset);
@@ -199,6 +276,13 @@ export function useWorkspace() {
           setVisOptions(optionsData);
           setVisPoints(visData.points || []);
           setVisualStats(visData.stats || null);
+          setAppliedVisualState({
+            datasetIds: nextSelectedIds,
+            colorBy: "cell_type",
+            limit: 5000,
+            sampleStrategy: "even",
+            filters: { ...EMPTY_FILTERS },
+          });
         }
       } catch (initializeError) {
         if (cancelled) return;
@@ -239,18 +323,28 @@ export function useWorkspace() {
   }
 
   async function handleRefreshVisualization(overrides = {}) {
-    return runAction("visual", () => fetchVisualization(selectedDatasetIds, overrides));
+    setError("");
+    try {
+      return await fetchVisualization(selectedDatasetIds, overrides);
+    } catch (visualError) {
+      setError(getErrorMessage(visualError));
+      return null;
+    }
   }
 
   function toggleDataset(datasetId) {
-    setSelectedDatasetIds((current) => {
-      if (current.includes(datasetId)) return current.filter((item) => item !== datasetId);
-      return [...current, datasetId];
-    });
-    const dataset = datasets.find((item) => item.dataset_id === datasetId);
+    const nextSelectedIds = selectedDatasetIds.includes(datasetId)
+      ? selectedDatasetIds.filter((item) => item !== datasetId)
+      : [...selectedDatasetIds, datasetId];
+    setSelectedDatasetIds(nextSelectedIds);
+    setSearchResult(null);
+    const dataset = datasets.find((item) => item.dataset_id === nextSelectedIds[0]);
     if (dataset?.sample_cell_ids?.[0]) {
       setQueryDatasetId(dataset.dataset_id);
       setQueryCellId(dataset.sample_cell_ids[0]);
+    } else {
+      setQueryDatasetId("");
+      setQueryCellId("");
     }
   }
 
@@ -267,6 +361,7 @@ export function useWorkspace() {
       const nextDatasets = await refreshDatasets();
       const nextSelectedIds = resolveSelectedDatasets(nextDatasets, indexStatus);
       setSelectedDatasetIds(nextSelectedIds);
+      setSearchResult(null);
     });
   }
 
@@ -279,6 +374,7 @@ export function useWorkspace() {
       const uploaded = await uploadDataset(uploadFile);
       await refreshDatasets();
       setSelectedDatasetIds((current) => [...new Set([...current, uploaded.dataset_id])]);
+      setSearchResult(null);
       setUploadFile(null);
     });
   }
@@ -300,43 +396,59 @@ export function useWorkspace() {
       const datasetId = selectedDatasetIds[0];
       const loaded = await loadDataset({ datasetId });
       setDatasetSummary(loaded);
+      setSelectedDatasetIds([loaded.dataset_id]);
       setQueryDatasetId(loaded.dataset_id);
       setQueryCellId(loaded.sample_cell_ids?.[0] || queryCellId);
+      setSearchResult(null);
       await fetchVisualization([loaded.dataset_id]);
       await refreshDatasets();
     });
   }
 
+  function normalizeIndexParameters() {
+    const nextNlist = clampInteger(nlist, INDEX_PARAMETER_MIN, INDEX_PARAMETER_MAX, 256);
+    const nextNprobe = Math.min(nextNlist, clampInteger(nprobe, INDEX_PARAMETER_MIN, INDEX_PARAMETER_MAX, 16));
+    setNlist(nextNlist);
+    setNprobe(nextNprobe);
+    return { nlist: nextNlist, nprobe: nextNprobe };
+  }
+
   async function handleBuildIndex() {
     return runAction("index", async () => {
-      const data = await buildIndex({ datasetIds: selectedDatasetIds, mode: indexMode, nlist, nprobe });
+      const { nlist: nextNlist, nprobe: nextNprobe } = normalizeIndexParameters();
+      const data = await buildIndex({ datasetIds: selectedDatasetIds, mode: indexMode, nlist: nextNlist, nprobe: nextNprobe });
       setIndexStatus(data);
       setSelectedIndexId(data.active_index_id || data.index_id || "");
+      setSearchResult(null);
       await fetchVisualization(data.dataset_ids?.length ? data.dataset_ids : selectedDatasetIds);
     });
   }
 
   async function handleSwitchIndex(indexId) {
-    setSelectedIndexId(indexId);
     return runAction("switch", async () => {
       const data = await switchIndex(indexId);
       setIndexStatus(data);
+      setSelectedIndexId(data.active_index_id || data.index_id || indexId);
       const nextDatasetIds = data.dataset_ids || [];
       setSelectedDatasetIds(nextDatasetIds);
+      setSearchResult(null);
       await fetchVisualization(nextDatasetIds);
     });
   }
 
   async function handleSearch() {
     return runAction("search", async () => {
+      const nextTopK = clampInteger(topK, TOP_K_MIN, TOP_K_MAX, 10);
+      setTopK(nextTopK);
       const result = await searchCells({
         cellId: queryCellId,
-        topK,
+        topK: nextTopK,
         datasetId: queryDatasetId,
         indexId: selectedIndexId,
       });
       setSearchResult(result);
       const visualDatasetIds = result.index?.dataset_ids?.length ? result.index.dataset_ids : selectedDatasetIds;
+      setSelectedDatasetIds(visualDatasetIds);
       await fetchVisualization(visualDatasetIds);
     });
   }
@@ -353,8 +465,9 @@ export function useWorkspace() {
   }
 
   async function handleClearVisualFilters() {
-    setVisualFilters(EMPTY_FILTERS);
-    await handleRefreshVisualization({ filters: EMPTY_FILTERS });
+    const filters = { ...EMPTY_FILTERS };
+    setVisualFilters(filters);
+    await handleRefreshVisualization({ filters });
   }
 
   function handlePickVisualizationCell(point) {
@@ -392,6 +505,8 @@ export function useWorkspace() {
 
   return {
     activeIndex,
+    appliedVisualDatasets,
+    appliedVisualState,
     auth,
     busy,
     canBuildIndex,
@@ -427,6 +542,9 @@ export function useWorkspace() {
     initializing,
     nlist,
     nprobe,
+    normalizeIndexParameters,
+    normalizeTopK: () => setTopK((current) => clampInteger(current, TOP_K_MIN, TOP_K_MAX, 10)),
+    normalizeVisualLimit: () => setVisualLimit((current) => clampInteger(current, VISUAL_LIMIT_MIN, VISUAL_LIMIT_MAX, 5000)),
     queryCellId,
     queryDatasetId,
     role,
@@ -455,9 +573,11 @@ export function useWorkspace() {
     visOptions,
     visPoints,
     visualColorBy,
+    visualDirty,
     visualFilters,
     visualGeneQuery,
     visualLimit,
+    visualLoading,
     visualSampleStrategy,
     visualStats,
   };

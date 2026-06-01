@@ -1,12 +1,20 @@
+import { useEffect, useState } from "react";
 import { Database, FileCheck2, LoaderCircle, Play, RefreshCw, Upload } from "lucide-react";
 
 import { formatBytes, formatNumber } from "../constants";
 import { AccessNotice, EmptyState, StatusBadge } from "../components/ui";
 
 export function DatasetPage({ workspace, guestMode }) {
+  const [focusDatasetId, setFocusDatasetId] = useState("");
   const focusDataset =
-    workspace.datasets.find((dataset) => dataset.dataset_id === workspace.selectedDatasetIds[0]) || workspace.datasets[0];
+    workspace.datasets.find((dataset) => dataset.dataset_id === focusDatasetId) ||
+    workspace.datasets.find((dataset) => dataset.dataset_id === workspace.selectedDatasetIds[0]) ||
+    workspace.datasets[0];
   const manageDisabled = Boolean(workspace.busy) || !workspace.canManageDatasets;
+
+  useEffect(() => {
+    if (focusDataset) setFocusDatasetId(focusDataset.dataset_id);
+  }, [focusDataset?.dataset_id]);
 
   return (
     <div className="registry-layout">
@@ -67,9 +75,18 @@ export function DatasetPage({ workspace, guestMode }) {
             </thead>
             <tbody>
               {workspace.datasets.map((dataset) => (
-                <tr key={dataset.dataset_id} className={focusDataset?.dataset_id === dataset.dataset_id ? "selected-row" : ""}>
+                <tr
+                  key={dataset.dataset_id}
+                  className={focusDataset?.dataset_id === dataset.dataset_id ? "selected-row" : ""}
+                  onClick={() => setFocusDatasetId(dataset.dataset_id)}
+                >
                   <td>
-                    <input type="checkbox" checked={workspace.selectedDatasetIds.includes(dataset.dataset_id)} onChange={() => workspace.toggleDataset(dataset.dataset_id)} />
+                    <input
+                      type="checkbox"
+                      checked={workspace.selectedDatasetIds.includes(dataset.dataset_id)}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => workspace.toggleDataset(dataset.dataset_id)}
+                    />
                   </td>
                   <td>
                     <strong>{dataset.name}</strong>

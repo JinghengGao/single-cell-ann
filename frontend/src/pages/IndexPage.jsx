@@ -23,7 +23,7 @@ export function IndexPage({ workspace, guestMode }) {
       <section className="active-index-band">
         <div className="active-index-title">
           <span className="section-icon"><GitBranch size={20} /></span>
-          <div>
+          <div className="active-index-copy">
             <p>Active vector index</p>
             <h2>{activeIndex.index_id || "尚未构建服务索引"}</h2>
             <span>当前查询服务使用的 FAISS IVF_FLAT 索引状态。</span>
@@ -62,11 +62,11 @@ export function IndexPage({ workspace, guestMode }) {
                 <option value="separate">独立索引</option>
               </select>
             </Field>
-            <Field label="nlist">
-              <input type="number" min="1" value={workspace.nlist} onChange={(event) => workspace.setNlist(Number(event.target.value))} disabled={!workspace.canBuildIndex} />
+            <Field label="nlist" hint="范围 1 - 65536">
+              <input type="number" min="1" max="65536" value={workspace.nlist} onChange={(event) => workspace.setNlist(event.target.value)} onBlur={workspace.normalizeIndexParameters} disabled={!workspace.canBuildIndex} />
             </Field>
-            <Field label="nprobe">
-              <input type="number" min="1" value={workspace.nprobe} onChange={(event) => workspace.setNprobe(Number(event.target.value))} disabled={!workspace.canBuildIndex} />
+            <Field label="nprobe" hint="范围 1 - nlist">
+              <input type="number" min="1" max="65536" value={workspace.nprobe} onChange={(event) => workspace.setNprobe(event.target.value)} onBlur={workspace.normalizeIndexParameters} disabled={!workspace.canBuildIndex} />
             </Field>
           </div>
           <button className="primary-button full-button" onClick={workspace.handleBuildIndex} disabled={buildDisabled}>
@@ -88,7 +88,7 @@ export function IndexPage({ workspace, guestMode }) {
               {workspace.indexOptions.map((item) => (
                 <article className={`index-list-row ${item.index_id === activeIndex.index_id ? "active" : ""}`} key={item.index_id}>
                   <span className="index-list-icon"><ServerCog size={18} /></span>
-                  <div>
+                  <div className="index-list-copy">
                     <strong>{item.index_id}</strong>
                     <span>{(item.dataset_ids || []).join(", ") || "-"} · {item.build_mode || "-"}</span>
                   </div>

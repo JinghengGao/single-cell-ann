@@ -24,7 +24,7 @@ export function LoginPage({ workspace, onBrowse }) {
     <main className="login-page">
       <section className="login-visual">
         <div className="login-grid" />
-        <UmapChart points={workspace.visPoints} stats={workspace.visualStats} colorBy={workspace.visualColorBy} variant="backdrop" />
+        <UmapChart points={workspace.visPoints} stats={workspace.visualStats} colorBy={workspace.appliedVisualState.colorBy} variant="backdrop" />
         <div className="login-visual-shade" />
         <div className="login-brand">
           <span className="login-brand-mark">

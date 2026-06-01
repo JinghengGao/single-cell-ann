@@ -19,6 +19,12 @@ export function WorkspaceShell({ view, onViewChange, guestMode, onExitGuest, wor
   const page = PAGE_META[view];
   const faissMode = workspace.health?.faiss?.mode || workspace.indexStatus?.mode || "unavailable";
   const accountLabel = workspace.auth.authenticated ? ROLE_LABELS[workspace.role] || workspace.role : "只读访客";
+  const runtimeDetail =
+    faissMode === "unavailable"
+      ? "FAISS 不可用"
+      : workspace.health?.faiss?.gpu_count
+        ? `${workspace.health.faiss.gpu_count} 个 GPU 可用`
+        : "CPU 模式";
 
   return (
     <div className="workspace-shell">
@@ -52,13 +58,13 @@ export function WorkspaceShell({ view, onViewChange, guestMode, onExitGuest, wor
               <span>运行状态</span>
               <StatusBadge value={faissMode.toUpperCase()} tone={faissMode === "unavailable" ? "bad" : "good"} />
             </div>
-            <small>{workspace.health?.faiss?.gpu_count ? `${workspace.health.faiss.gpu_count} 个 GPU 可用` : "服务运行中"}</small>
+            <small>{runtimeDetail}</small>
           </div>
           <div className="account-row">
             <span className="account-avatar">
               {workspace.auth.authenticated ? <UserRound size={17} /> : <ShieldCheck size={17} />}
             </span>
-            <div>
+            <div className="account-copy">
               <strong>{workspace.auth.user?.username || "访客模式"}</strong>
               <span>{accountLabel}</span>
             </div>
@@ -76,7 +82,7 @@ export function WorkspaceShell({ view, onViewChange, guestMode, onExitGuest, wor
 
       <div className="workspace-main">
         <header className="workspace-header">
-          <div>
+          <div className="workspace-heading">
             <p>{page.eyebrow}</p>
             <h1>{page.title}</h1>
             <span>{page.description}</span>

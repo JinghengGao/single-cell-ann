@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BarChart3,
   Download,
@@ -84,18 +84,37 @@ function ResultsTable({ hits, compact = false }) {
   );
 }
 
+function matchesVisualFilters(cell, filters = {}) {
+  return Object.entries(filters).every(([fieldName, value]) => !value || cell?.[fieldName] === value);
+}
+
 export function AnalysisPage({ workspace, guestMode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const appliedColorBy = workspace.appliedVisualState.colorBy;
   const legendItems = workspace.visualStats?.by_color?.length
     ? workspace.visualStats.by_color
     : workspace.visualStats?.by_dataset || [];
   const hasHits = Boolean(workspace.searchResult?.hits?.length);
+  const totalHitCount = workspace.searchResult?.hits?.length || 0;
+  const visibleOverlayHitCount = useMemo(
+    () => (workspace.searchResult?.hits || []).filter((hit) => hit.umap && matchesVisualFilters(hit, workspace.appliedVisualState.filters)).length,
+    [workspace.appliedVisualState.filters, workspace.searchResult],
+  );
   const queryDisabled =
     Boolean(workspace.busy) || !workspace.canSearch || !workspace.queryCellId || !workspace.activeIndex?.ready;
   const selectedDatasetText = useMemo(
-    () => workspace.selectedDatasets.map((dataset) => dataset.name).join(", ") || "未选择数据集",
-    [workspace.selectedDatasets],
+    () => workspace.appliedVisualDatasets.map((dataset) => dataset.name).join(", ") || "未选择数据集",
+    [workspace.appliedVisualDatasets],
   );
+
+  useEffect(() => {
+    if (!drawerOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setDrawerOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [drawerOpen]);
 
   function submitSearch(event) {
     event.preventDefault();
@@ -135,7 +154,8 @@ export function AnalysisPage({ workspace, guestMode }) {
                   max="5000"
                   step="100"
                   value={workspace.visualLimit}
-                  onChange={(event) => workspace.setVisualLimit(Number(event.target.value))}
+                  onChange={(event) => workspace.setVisualLimit(event.target.value)}
+                  onBlur={workspace.normalizeVisualLimit}
                 />
               </Field>
               <Field label="抽样方式">
@@ -169,19 +189,23 @@ export function AnalysisPage({ workspace, guestMode }) {
             <Field label="基因名或 Ensembl ID">
               <input value={workspace.visualGeneQuery} onChange={(event) => workspace.setVisualGeneQuery(event.target.value)} />
             </Field>
-            <button className="secondary-button full-button" onClick={workspace.handleApplyGeneColor} disabled={!workspace.selectedDatasetIds.length}>
+            <button className="secondary-button full-button" onClick={workspace.handleApplyGeneColor} disabled={Boolean(workspace.busy) || workspace.visualLoading || !workspace.selectedDatasetIds.length}>
               <FlaskConical size={16} />
               应用表达量着色
             </button>
           </section>
 
           <div className="rail-actions">
-            <button className="primary-button full-button" onClick={() => workspace.handleRefreshVisualization()} disabled={Boolean(workspace.busy) || !workspace.selectedDatasetIds.length}>
-              {workspace.busy === "visual" ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
+            <div className={`view-sync-row ${workspace.visualDirty ? "pending" : "synced"}`}>
+              <span>{workspace.visualDirty ? "有未应用更改" : "视图已同步"}</span>
+              <small>{workspace.visualDirty ? "点击下方按钮更新画布" : "画布与筛选设置一致"}</small>
+            </div>
+            <button className="primary-button full-button" onClick={() => workspace.handleRefreshVisualization()} disabled={Boolean(workspace.busy) || workspace.visualLoading || !workspace.selectedDatasetIds.length}>
+              {workspace.visualLoading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
               应用视图设置
             </button>
             <div className="rail-action-grid">
-              <button className="text-button" onClick={workspace.handleClearVisualFilters}>
+              <button className="text-button" onClick={workspace.handleClearVisualFilters} disabled={workspace.visualLoading}>
                 <Eraser size={15} />清除过滤
               </button>
               <button className="text-button" onClick={workspace.exportVisualizationCsv} disabled={!workspace.visPoints.length}>
@@ -200,9 +224,9 @@ export function AnalysisPage({ workspace, guestMode }) {
             <div className="embedding-summary">
               <span><b>{formatNumber(workspace.visualStats?.visible_cells)}</b> 可见细胞</span>
               <span><b>{formatNumber(workspace.visualStats?.sampled_points)}</b> 当前采样</span>
-              <StatusBadge value={colorByLabel(workspace.visualColorBy)} tone="teal" />
-              <IconButton label="刷新 UMAP" onClick={() => workspace.handleRefreshVisualization()} disabled={Boolean(workspace.busy)}>
-                <RefreshCw size={16} className={workspace.busy === "visual" ? "spin" : ""} />
+              <StatusBadge value={colorByLabel(appliedColorBy)} tone="teal" />
+              <IconButton label="刷新 UMAP" onClick={() => workspace.handleRefreshVisualization()} disabled={Boolean(workspace.busy) || workspace.visualLoading}>
+                <RefreshCw size={16} className={workspace.visualLoading ? "spin" : ""} />
               </IconButton>
             </div>
           </header>
@@ -211,15 +235,17 @@ export function AnalysisPage({ workspace, guestMode }) {
               points={workspace.visPoints}
               queryCell={workspace.searchResult?.query_cell}
               hits={workspace.searchResult?.hits || []}
-              colorBy={workspace.visualColorBy}
+              colorBy={appliedColorBy}
               stats={workspace.visualStats}
+              filters={workspace.appliedVisualState.filters}
               onPickCell={workspace.handlePickVisualizationCell}
+              emptyMessage={workspace.visualLoading ? "正在更新 UMAP 数据" : "当前筛选条件下没有可见细胞"}
             />
             <div className="embedding-axis x-axis">UMAP 1</div>
             <div className="embedding-axis y-axis">UMAP 2</div>
             <div className="plot-key">
               <span><i className="query-key" /> 查询细胞</span>
-              <span><i className="hit-key" /> Top-K 邻域</span>
+              <span><i className="hit-key" /> Top-K 邻域{hasHits ? ` ${visibleOverlayHitCount}/${totalHitCount}` : ""}</span>
             </div>
           </div>
         </section>
@@ -248,7 +274,7 @@ export function AnalysisPage({ workspace, guestMode }) {
               <input value={workspace.queryCellId} onChange={(event) => workspace.setQueryCellId(event.target.value)} placeholder="选择图中细胞或输入 ID" />
             </Field>
             <Field label="Top-K">
-              <input type="number" min="1" max="100" value={workspace.topK} onChange={(event) => workspace.setTopK(Number(event.target.value))} />
+              <input type="number" min="1" max="100" value={workspace.topK} onChange={(event) => workspace.setTopK(event.target.value)} onBlur={workspace.normalizeTopK} />
             </Field>
             <button className="primary-button full-button" type="submit" disabled={queryDisabled}>
               {workspace.busy === "search" ? <LoaderCircle size={17} className="spin" /> : <Play size={17} />}
@@ -269,10 +295,13 @@ export function AnalysisPage({ workspace, guestMode }) {
               </button>
             </div>
             <ResultsTable hits={workspace.searchResult?.hits} compact />
+            {hasHits && visibleOverlayHitCount < totalHitCount ? (
+              <p className="filtered-overlay-note">当前过滤视图显示 {visibleOverlayHitCount} / {totalHitCount} 个命中点</p>
+            ) : null}
           </section>
 
           <section className="inspector-section">
-            <h3>{colorByLabel(workspace.visualColorBy)}</h3>
+            <h3>{colorByLabel(appliedColorBy)}</h3>
             {workspace.visualStats?.expression ? (
               <div className="expression-summary">
                 <span>表达细胞 {(workspace.visualStats.expression.expressing_fraction * 100).toFixed(1)}%</span>

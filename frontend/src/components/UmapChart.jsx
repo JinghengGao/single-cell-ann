@@ -18,17 +18,41 @@ function buildColorMap(stats, points) {
   return map;
 }
 
+function matchesFilters(point, filters = {}) {
+  return Object.entries(filters).every(([fieldName, value]) => !value || point?.[fieldName] === value);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "-").replace(
+    /[&<>"']/g,
+    (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character],
+  );
+}
+
 export function UmapChart({
   points,
   queryCell,
   hits,
   colorBy,
   stats,
+  filters,
   onPickCell,
   variant = "workspace",
+  emptyMessage,
 }) {
   const ref = useRef(null);
-  const hitKeys = useMemo(() => new Set((hits || []).map((hit) => `${hit.dataset_id}:${hit.cell_id}`)), [hits]);
+  const visibleHits = useMemo(
+    () => (hits || []).filter((hit) => hit.umap && matchesFilters(hit, filters)),
+    [filters, hits],
+  );
+  const visibleQueryCell = useMemo(
+    () => (queryCell?.umap && matchesFilters(queryCell, filters) ? queryCell : null),
+    [filters, queryCell],
+  );
+  const hitKeys = useMemo(
+    () => new Set(visibleHits.map((hit) => `${hit.dataset_id}:${hit.cell_id}`)),
+    [visibleHits],
+  );
   const isExpression = colorBy?.startsWith("gene:");
   const isBackdrop = variant === "backdrop";
 
@@ -57,9 +81,7 @@ export function UmapChart({
         },
       };
     });
-    const hitData = (hits || [])
-      .filter((hit) => hit.umap)
-      .map((hit) => ({
+    const hitData = visibleHits.map((hit) => ({
         value: hit.umap,
         name: hit.cell_id,
         dataset_id: hit.dataset_id,
@@ -70,22 +92,22 @@ export function UmapChart({
         tissue: hit.tissue,
         rank: hit.rank,
       }));
-    const queryData = queryCell?.umap
+    const queryData = visibleQueryCell
       ? [
           {
-            value: queryCell.umap,
-            name: queryCell.cell_id,
-            dataset_id: queryCell.dataset_id,
-            dataset_name: queryCell.dataset_name,
-            cell_type: queryCell.cell_type,
+            value: visibleQueryCell.umap,
+            name: visibleQueryCell.cell_id,
+            dataset_id: visibleQueryCell.dataset_id,
+            dataset_name: visibleQueryCell.dataset_name,
+            cell_type: visibleQueryCell.cell_type,
           },
         ]
       : [];
     const lineData =
-      queryCell?.umap && hitData.length
+      visibleQueryCell?.umap && hitData.length
         ? hitData.map((hit) => ({
-            coords: [queryCell.umap, hit.value],
-            name: `${queryCell.cell_id}-${hit.name}`,
+            coords: [visibleQueryCell.umap, hit.value],
+            name: `${visibleQueryCell.cell_id}-${hit.name}`,
           }))
         : [];
 
@@ -105,7 +127,7 @@ export function UmapChart({
             formatter: (params) => {
               const item = params.data || {};
               const expressionLine = isExpression ? `<br/>表达量 ${Number(item.expression || 0).toFixed(3)}` : "";
-              return `<b>${item.name || "-"}</b><br/>${item.cell_type || "-"}<br/>${item.disease || "-"} / ${item.AgeGroup || "-"}${expressionLine}`;
+              return `<b>${escapeHtml(item.name)}</b><br/>${escapeHtml(item.cell_type)}<br/>${escapeHtml(item.disease)} / ${escapeHtml(item.AgeGroup)}${expressionLine}`;
             },
           },
       toolbox: isBackdrop
@@ -198,15 +220,15 @@ export function UmapChart({
       window.removeEventListener("resize", resize);
       chart.dispose();
     };
-  }, [colorBy, hitKeys, hits, isBackdrop, isExpression, onPickCell, points, queryCell, stats]);
+  }, [colorBy, hitKeys, isBackdrop, isExpression, onPickCell, points, stats, visibleHits, visibleQueryCell]);
 
   if (!points?.length) {
     return (
-      <div className={`plot-empty ${isBackdrop ? "backdrop-empty" : ""}`}>
-        <span>等待 UMAP 数据</span>
+      <div key={`empty-${variant}`} className={`plot-empty ${isBackdrop ? "backdrop-empty" : ""}`}>
+        <span>{emptyMessage || "等待 UMAP 数据"}</span>
       </div>
     );
   }
 
-  return <div ref={ref} className={isBackdrop ? "login-umap-chart" : "umap-chart"} />;
+  return <div key={`chart-${variant}`} ref={ref} className={isBackdrop ? "login-umap-chart" : "umap-chart"} />;
 }

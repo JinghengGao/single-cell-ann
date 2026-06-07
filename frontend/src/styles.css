@@ -1049,13 +1049,45 @@ p {
 }
 
 .login-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   margin-top: 16px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(180, 72, 72, 0.18);
   border-left: 3px solid var(--red);
-  padding: 8px 10px;
+  border-radius: 6px;
+  padding: 9px 10px;
   color: var(--red);
   background: var(--red-soft);
   font-size: 12px;
   line-height: 1.55;
+}
+
+.login-error span {
+  min-width: 0;
+  flex: 1;
+}
+
+.login-error svg {
+  margin-top: 1px;
+}
+
+.login-error button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: -2px -3px 0 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--red);
+  background: transparent;
+}
+
+.login-error button:hover {
+  background: rgba(180, 72, 72, 0.1);
 }
 
 .auth-tabs {

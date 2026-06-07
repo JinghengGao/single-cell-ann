@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, ArrowRight, Database, Dna, Eye, FlaskConical, LoaderCircle, LogIn, Sparkles } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, Database, Dna, Eye, FlaskConical, LoaderCircle, LogIn, Sparkles, X } from "lucide-react";
 
 import { formatNumber } from "../constants";
 import { LoginParticleOverlay } from "../components/LoginParticleOverlay";
@@ -11,8 +11,18 @@ export function LoginPage({ workspace, onBack, onBrowse }) {
   const [form, setForm] = useState({ username: "", password: "", role: "admin" });
   const disabled = Boolean(workspace.busy);
 
+  function changeMode(nextMode) {
+    setMode(nextMode);
+    workspace.clearError();
+  }
+
+  function updateForm(fieldName, value) {
+    workspace.clearError();
+    setForm({ ...form, [fieldName]: value });
+  }
+
   function fillDemoAccount() {
-    setMode("login");
+    changeMode("login");
     setForm({ username: "demo_admin", password: "demo_password", role: "admin" });
   }
 
@@ -81,19 +91,29 @@ export function LoginPage({ workspace, onBack, onBrowse }) {
           {workspace.connectionError ? <p className="login-error">{workspace.connectionError}</p> : null}
 
           <div className="auth-tabs">
-            <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>
+            <button type="button" className={mode === "login" ? "active" : ""} onClick={() => changeMode("login")}>
               登录
             </button>
-            <button type="button" className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>
+            <button type="button" className={mode === "register" ? "active" : ""} onClick={() => changeMode("register")}>
               注册
             </button>
           </div>
+
+          {workspace.error ? (
+            <div className="login-error" role="alert">
+              <AlertCircle size={16} />
+              <span>{workspace.error}</span>
+              <button type="button" title="关闭提示" aria-label="关闭提示" onClick={workspace.clearError}>
+                <X size={15} />
+              </button>
+            </div>
+          ) : null}
 
           <form className="login-form" onSubmit={submit}>
             <Field label="用户名">
               <input
                 value={form.username}
-                onChange={(event) => setForm({ ...form, username: event.target.value })}
+                onChange={(event) => updateForm("username", event.target.value)}
                 placeholder="请输入用户名"
                 autoComplete="username"
               />
@@ -102,14 +122,14 @@ export function LoginPage({ workspace, onBack, onBrowse }) {
               <input
                 type="password"
                 value={form.password}
-                onChange={(event) => setForm({ ...form, password: event.target.value })}
+                onChange={(event) => updateForm("password", event.target.value)}
                 placeholder="请输入密码"
                 autoComplete={mode === "register" ? "new-password" : "current-password"}
               />
             </Field>
             {mode === "register" ? (
               <Field label="账户角色">
-                <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })}>
+                <select value={form.role} onChange={(event) => updateForm("role", event.target.value)}>
                   <option value="admin">管理员</option>
                   <option value="data_manager">数据维护者</option>
                   <option value="researcher">研究人员</option>

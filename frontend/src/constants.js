@@ -84,7 +84,15 @@ export function formatBytes(value) {
 }
 
 export function getErrorMessage(error) {
-  return error?.response?.data?.message || error?.response?.data?.error || error?.message || "请求失败";
+  const serverMessage = error?.response?.data?.message;
+  const serverCode = error?.response?.data?.error;
+  if (serverMessage === "username already exists") return "该账户已存在，请直接登录或更换用户名。";
+  if (serverMessage === "username must be at least 3 characters") return "用户名至少需要 3 个字符。";
+  if (serverMessage === "password must be at least 6 characters") return "密码至少需要 6 个字符。";
+  if (serverMessage === "invalid username or password") return "用户名或密码不正确，请检查后重试。";
+  if (serverCode === "invalid_registration") return "注册信息无效，请检查后重试。";
+  if (serverCode === "invalid_login") return "登录失败，请检查账号和密码。";
+  return serverMessage || serverCode || error?.message || "请求失败";
 }
 
 export function statusTone(value) {

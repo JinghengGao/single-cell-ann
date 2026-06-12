@@ -127,8 +127,8 @@ export function AnalysisPage({ workspace, guestMode }) {
         <aside className="analysis-rail filter-rail">
           <div className="rail-heading">
             <div>
-              <p>Visualization</p>
-              <h2>视图控制</h2>
+              <p>视图控制：Visualization</p>
+              <h2>嵌入与筛选</h2>
             </div>
             <SlidersHorizontal size={18} />
           </div>
@@ -218,7 +218,7 @@ export function AnalysisPage({ workspace, guestMode }) {
         <section className="embedding-workspace">
           <header className="embedding-header">
             <div>
-              <p>Embedding / UMAP</p>
+              <p>嵌入视图：Embedding / UMAP</p>
               <h2>{selectedDatasetText}</h2>
             </div>
             <div className="embedding-summary">
@@ -258,7 +258,7 @@ export function AnalysisPage({ workspace, guestMode }) {
         <aside className="analysis-rail inspector-rail">
           <div className="rail-heading">
             <div>
-              <p>ANN Inspector</p>
+              <p>向量检索：ANN Inspector</p>
               <h2>邻域检索</h2>
             </div>
             <Search size={18} />
@@ -337,7 +337,7 @@ export function AnalysisPage({ workspace, guestMode }) {
           <aside className="result-drawer">
             <header>
               <div>
-                <p>ANN neighborhood</p>
+                <p>邻域明细：ANN neighborhood</p>
                 <h2>Top-K 检索结果</h2>
                 <span>查询细胞：{workspace.searchResult?.query_cell?.cell_id || workspace.queryCellId}</span>
               </div>

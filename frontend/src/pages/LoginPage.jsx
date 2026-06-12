@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertCircle, ArrowLeft, ArrowRight, Database, Dna, Eye, FlaskConical, LoaderCircle, LogIn, Sparkles, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, Boxes, Database, Dna, Eye, FlaskConical, LoaderCircle, LogIn, UserRound, X } from "lucide-react";
 
 import { formatNumber } from "../constants";
 import { LoginParticleOverlay } from "../components/LoginParticleOverlay";
@@ -48,9 +48,9 @@ export function LoginPage({ workspace, onBack, onBrowse }) {
           </div>
         </div>
         <div className="login-story">
-          <p>Single-cell neighborhood intelligence</p>
-          <h1>让每一次细胞检索<br />回到真实表达空间。</h1>
-          <span>在统一工作台中探索 UMAP 嵌入、筛选细胞群，并检查 ANN Top-K 邻域。</span>
+          <p>单细胞向量检索平台 · Single-cell neighborhood intelligence</p>
+          <h1>让每一次细胞检索回到真实表达空间。<br />在 UMAP 空间中检索相似细胞邻域。</h1>
+          <span>在统一工作台中浏览 UMAP 嵌入、筛选细胞群，并查看 ANN Top-K 邻域。</span>
         </div>
         <div className="login-proof">
           <div>
@@ -64,7 +64,7 @@ export function LoginPage({ workspace, onBack, onBrowse }) {
             <strong>{formatNumber(workspace.datasets[0]?.cell_count)}</strong>
           </div>
           <div>
-            <Sparkles size={17} />
+            <Boxes size={17} />
             <span>向量维度</span>
             <strong>{workspace.datasets[0]?.vector_dim || "-"}</strong>
           </div>
@@ -144,7 +144,7 @@ export function LoginPage({ workspace, onBack, onBrowse }) {
           </form>
 
           <button className="demo-account-button" type="button" onClick={fillDemoAccount}>
-            <Sparkles size={16} />
+            <UserRound size={16} />
             使用演示账户
           </button>
 

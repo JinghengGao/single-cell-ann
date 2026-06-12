@@ -24,7 +24,7 @@ export function IndexPage({ workspace, guestMode }) {
         <div className="active-index-title">
           <span className="section-icon"><GitBranch size={20} /></span>
           <div className="active-index-copy">
-            <p>Active vector index</p>
+            <p>当前索引：Active vector index</p>
             <h2>{activeIndex.index_id || "尚未构建服务索引"}</h2>
             <span>当前查询服务使用的 FAISS IVF_FLAT 索引状态。</span>
           </div>
@@ -46,7 +46,7 @@ export function IndexPage({ workspace, guestMode }) {
         <section className="index-config-panel">
           <header className="page-section-header compact">
             <div>
-              <p>Build configuration</p>
+              <p>构建参数：Build configuration</p>
               <h2>构建新索引</h2>
               <span>基于当前选中的数据集生成服务索引。</span>
             </div>
@@ -78,7 +78,7 @@ export function IndexPage({ workspace, guestMode }) {
         <section className="index-list-panel">
           <header className="page-section-header compact">
             <div>
-              <p>Index inventory</p>
+              <p>索引列表：Index inventory</p>
               <h2>可用索引</h2>
               <span>检查历史索引并切换当前服务版本。</span>
             </div>

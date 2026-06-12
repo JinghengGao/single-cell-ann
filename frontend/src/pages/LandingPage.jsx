@@ -23,8 +23,8 @@ const CAPABILITIES = [
   {
     icon: Layers3,
     index: "01",
-    title: "真实嵌入空间",
-    description: "直接浏览公开单细胞数据集的 UMAP 分布，在组织、疾病和年龄组之间快速收窄观察范围。",
+    title: "UMAP 嵌入浏览真实嵌入空间",
+    description: "浏览公开单细胞数据集的 UMAP 分布，在组织、疾病和年龄组之间快速收窄观察范围。",
   },
   {
     icon: Search,
@@ -35,8 +35,8 @@ const CAPABILITIES = [
   {
     icon: FlaskConical,
     index: "03",
-    title: "表达与元数据联动",
-    description: "按细胞类型或元数据字段着色，并用基因表达量重新解释当前嵌入空间中的细胞群落。",
+    title: "表达与元数据着色联动",
+    description: "按细胞类型或元数据字段着色，并用基因表达量查看当前嵌入空间中的细胞群分布并重新解释。",
   },
 ];
 
@@ -95,10 +95,10 @@ export function LandingPage({ workspace, onLogin, onBrowse }) {
         </header>
 
         <div className="landing-hero-copy">
-          <p>Single-cell neighborhood intelligence</p>
+          <p>单细胞向量检索平台 · Single-cell neighborhood intelligence</p>
           <h1>CellScope ANN</h1>
-          <h2>从单细胞嵌入空间，<br />抵达可解释的相似邻域。</h2>
-          <span>面向科研分析场景的单细胞向量检索平台。以真实 UMAP 数据云为入口，连接数据集、FAISS 索引、元数据筛选与基因表达着色。</span>
+          <h2>在单细胞 UMAP 嵌入空间中<br />检索、抵达可解释相似细胞邻域。</h2>
+          <span>面向科研分析场景的单细胞向量检索平台，以真实 UMAP 数据云为入口，集成数据集管理、FAISS 索引构建、元数据筛选与基因表达着色等功能。</span>
           <div className="landing-hero-actions">
             <button className="landing-solid-button prominent" type="button" onClick={onLogin}>
               进入分析平台<ArrowRight size={18} />
@@ -141,8 +141,8 @@ export function LandingPage({ workspace, onLogin, onBrowse }) {
       <section className="landing-intro" id="platform">
         <div className="landing-section-inner landing-intro-grid">
           <div className="landing-section-heading">
-            <p>Research workspace</p>
-            <h2>让检索、筛选与解释<br />保持在同一张图上。</h2>
+            <p>功能概述：Research workspace</p>
+            <h2>检索、筛选与表达解释<br />保持在同一张图上完成。</h2>
           </div>
           <div className="landing-intro-copy">
             <p>CellScope ANN 将单细胞数据分析中常见的向量检索工作流收拢为一个桌面科研工作台。研究者可以从群落分布出发，逐步定位目标细胞，并直接核查其近邻组成。</p>
@@ -157,7 +157,7 @@ export function LandingPage({ workspace, onLogin, onBrowse }) {
       <section className="landing-capabilities">
         <div className="landing-section-inner">
           <header className="landing-band-heading">
-            <p>Platform capabilities</p>
+            <p>主要功能：Platform capabilities</p>
             <h2>围绕真实数据的分析能力</h2>
           </header>
           <div className="landing-capability-grid">
@@ -181,8 +181,8 @@ export function LandingPage({ workspace, onLogin, onBrowse }) {
       <section className="landing-workflow" id="workflow">
         <div className="landing-section-inner landing-workflow-grid">
           <div className="landing-section-heading">
-            <p>Analysis workflow</p>
-            <h2>三步进入<br />细胞邻域分析。</h2>
+            <p>使用流程：Analysis workflow</p>
+            <h2>三步完成<br />细胞邻域分析。</h2>
             <span>平台保留清晰的任务边界，让演示过程从数据准备自然过渡到检索结果。</span>
           </div>
           <div className="landing-workflow-list">
@@ -206,8 +206,8 @@ export function LandingPage({ workspace, onLogin, onBrowse }) {
       <section className="landing-access" id="access">
         <div className="landing-section-inner landing-access-grid">
           <div>
-            <p>Start exploring</p>
-            <h2>进入 CellScope ANN<br />开始一次可解释的细胞检索。</h2>
+            <p>开始使用：Start exploring</p>
+            <h2>进入 CellScope ANN<br />开始一次可解释的细胞邻域检索。</h2>
           </div>
           <div className="landing-access-actions">
             <button className="landing-solid-button prominent" type="button" onClick={onLogin}>
@@ -223,7 +223,7 @@ export function LandingPage({ workspace, onLogin, onBrowse }) {
       <footer className="landing-footer">
         <div className="landing-section-inner">
           <span>CellScope ANN</span>
-          <span>Single-cell neighborhood analysis workspace</span>
+          <span>单细胞邻域分析工作台 · Single-cell neighborhood analysis workspace</span>
         </div>
       </footer>
     </main>

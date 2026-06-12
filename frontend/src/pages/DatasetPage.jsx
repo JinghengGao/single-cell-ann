@@ -21,7 +21,7 @@ export function DatasetPage({ workspace, guestMode }) {
       <section className="registry-main">
         <header className="page-section-header">
           <div>
-            <p>Dataset registry</p>
+            <p>数据源：Dataset registry</p>
             <h2>数据源登记与准备</h2>
             <span>选择用于联合或独立索引构建的单细胞数据集。</span>
           </div>
@@ -109,7 +109,7 @@ export function DatasetPage({ workspace, guestMode }) {
         <div className="detail-panel-heading">
           <Database size={18} />
           <div>
-            <p>Dataset detail</p>
+            <p>数据集详情：Dataset details</p>
             <h2>{focusDataset?.name || "未选择数据集"}</h2>
           </div>
         </div>

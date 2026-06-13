@@ -29,6 +29,21 @@ function escapeHtml(value) {
   );
 }
 
+function paddedAxisExtent(values) {
+  const finiteValues = values.map(Number).filter(Number.isFinite);
+  if (!finiteValues.length) return { min: -1, max: 1 };
+
+  const min = Math.min(...finiteValues);
+  const max = Math.max(...finiteValues);
+  if (min === max) {
+    const fallbackPadding = Math.max(Math.abs(min) * 0.08, 1);
+    return { min: min - fallbackPadding, max: max + fallbackPadding };
+  }
+
+  const padding = (max - min) * 0.09;
+  return { min: min - padding, max: max + padding };
+}
+
 export function UmapChart({
   points,
   queryCell,
@@ -111,11 +126,18 @@ export function UmapChart({
             name: `${visibleQueryCell.cell_id}-${hit.name}`,
           }))
         : [];
+    const plottedCoordinates = [
+      ...points.map((point) => [point.x, point.y]),
+      ...hitData.map((hit) => hit.value),
+      ...queryData.map((query) => query.value),
+    ].filter((coordinate) => Number.isFinite(Number(coordinate?.[0])) && Number.isFinite(Number(coordinate?.[1])));
+    const xExtent = paddedAxisExtent(plottedCoordinates.map((coordinate) => coordinate[0]));
+    const yExtent = paddedAxisExtent(plottedCoordinates.map((coordinate) => coordinate[1]));
 
     chart.setOption({
       animation: !isBackdrop && !reduceMotion,
       animationDuration: isBackdrop || reduceMotion ? 0 : 320,
-      grid: isBackdrop ? { left: 0, right: 0, top: 0, bottom: 0 } : { left: 18, right: 18, top: 18, bottom: isExpression ? 48 : 24 },
+      grid: isBackdrop ? { left: 0, right: 0, top: 0, bottom: 0 } : { left: 30, right: 30, top: 28, bottom: isExpression ? 58 : 34 },
       tooltip: isBackdrop
         ? { show: false }
         : {
@@ -162,8 +184,8 @@ export function UmapChart({
             { type: "inside", xAxisIndex: 0, filterMode: "none" },
             { type: "inside", yAxisIndex: 0, filterMode: "none" },
           ],
-      xAxis: { type: "value", show: false, scale: true },
-      yAxis: { type: "value", show: false, scale: true },
+      xAxis: { type: "value", show: false, scale: true, min: xExtent.min, max: xExtent.max },
+      yAxis: { type: "value", show: false, scale: true, min: yExtent.min, max: yExtent.max },
       series: [
         {
           name: "cells",
@@ -227,9 +249,12 @@ export function UmapChart({
       });
     }
     const resize = () => chart.resize();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+    observer?.observe(ref.current);
     window.addEventListener("resize", resize);
     return () => {
       window.removeEventListener("resize", resize);
+      observer?.disconnect();
       chart.dispose();
     };
   }, [colorBy, hitKeys, isBackdrop, isExpression, onPickCell, points, stats, visibleHits, visibleQueryCell]);

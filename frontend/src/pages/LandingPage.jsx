@@ -22,19 +22,16 @@ import { formatNumber } from "../constants";
 const CAPABILITIES = [
   {
     icon: Layers3,
-    index: "01",
     title: "UMAP 嵌入浏览真实嵌入空间",
     description: "浏览公开单细胞数据集的 UMAP 分布，在组织、疾病和年龄组之间快速收窄观察范围。",
   },
   {
     icon: Search,
-    index: "02",
     title: "ANN 邻域检索",
     description: "基于 FAISS 向量索引定位 Top-K 相似细胞，将查询细胞、邻域点与距离关系同步回投到画布。",
   },
   {
     icon: FlaskConical,
-    index: "03",
     title: "表达与元数据着色联动",
     description: "按细胞类型或元数据字段着色，并用基因表达量查看当前嵌入空间中的细胞群分布并重新解释。",
   },
@@ -164,9 +161,8 @@ export function LandingPage({ workspace, onLogin, onBrowse }) {
             {CAPABILITIES.map((item) => {
               const Icon = item.icon;
               return (
-                <article className="landing-capability" key={item.index}>
+                <article className="landing-capability" key={item.title}>
                   <div className="landing-capability-top">
-                    <span>{item.index}</span>
                     <Icon size={20} />
                   </div>
                   <h3>{item.title}</h3>

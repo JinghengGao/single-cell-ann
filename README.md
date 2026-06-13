@@ -7,6 +7,7 @@
 - 数据管理模块：扫描 `data/*.h5ad`、`data/datasets/*.h5ad`，上传 `.h5ad` 到 `data/uploads/`，校验 `X_pca`、`X_umap`、`obs/_index`。
 - 索引构建模块：基于 FAISS IVF_FLAT 构建 ANN 索引，支持联合索引和独立索引，GPU 可用时优先使用 GPU。
 - 查询检索模块：按 `cell_id` 执行 Top-K 相似细胞搜索，返回距离、相似度、细胞类型、疾病、年龄组、组织、UMAP 坐标和所属数据集。
+- 大模型辅助分析模块：可将 Top-K 检索结果发送到后端配置的硅基流动 Chat Completions 接口，由 `Qwen/Qwen3-8B` 生成中文邻域解读。
 - 可视化展示模块：升级为 UMAP 分析工作台，支持元信息着色、过滤、统计摘要、基因表达叠加、Top-K 连线、点击选点和 CSV 导出。
 - 用户信息模块：未登录可预览主页，登录后按身份开放操作；支持本地演示级注册、登录、退出和当前用户显示。
 
@@ -53,6 +54,17 @@ conda activate single-cell-ann
 python -m backend.app
 ```
 
+如需启用 AI 辅助分析，先配置硅基流动接口：
+
+```powershell
+$env:SCANN_LLM_API_URL="https://api.siliconflow.cn/v1/chat/completions"
+$env:SCANN_LLM_API_KEY="你的硅基流动密钥"
+$env:SCANN_LLM_MODEL="Qwen/Qwen3-8B"
+$env:SCANN_LLM_ENABLE_THINKING="false"
+```
+
+进入工作区后，可在左侧导航打开“AI 辅助分析”大屏，临时开启或关闭 Qwen3 思考模式；开启后分析更充分但响应会更慢。大屏会复用检索后的 UMAP 空间图展示查询细胞与 Top-K 命中位置关系，同时把系统提示词增强后的分析结构渲染为 SVG 层次图，并结合距离统计、细胞组成、查询邻域网络和 AI Markdown 报告形成完整可视化视图。
+
 前端：
 
 ```powershell
@@ -92,6 +104,7 @@ npm run dev
 - `POST /api/index/switch`
 - `GET /api/index/status`
 - `POST /api/search`
+- `POST /api/search/analyze`
 - `GET /api/visualization/cells?limit=5000`
 - `GET /api/visualization/options?dataset_ids=liver&gene_query=ALB`
 

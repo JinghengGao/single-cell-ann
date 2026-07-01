@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
+import time
 from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
+from threading import RLock
 from typing import Any
 
-import requests
+from backend.services.llm_providers import BaseLlmProvider, LlmProviderError, get_llm_provider
 
 
-MAX_HITS_FOR_PROMPT = 50
+DEFAULT_MAX_HITS_FOR_PROMPT = 50
+MAX_HITS_FOR_PROMPT = DEFAULT_MAX_HITS_FOR_PROMPT
 COUNT_FIELDS = ("cell_type", "disease", "tissue", "AgeGroup")
 
 
@@ -66,7 +73,10 @@ def _summarize_hit(hit: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_analysis_context(search_result: dict[str, Any]) -> dict[str, Any]:
+def build_analysis_context(
+    search_result: dict[str, Any],
+    max_hits_for_prompt: int = DEFAULT_MAX_HITS_FOR_PROMPT,
+) -> dict[str, Any]:
     if not isinstance(search_result, dict):
         raise ValueError("search_result must be an object")
 
@@ -77,7 +87,8 @@ def build_analysis_context(search_result: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(hits, list) or not hits:
         raise ValueError("search_result.hits must contain at least one result")
 
-    prompt_hits = [hit for hit in hits[:MAX_HITS_FOR_PROMPT] if isinstance(hit, dict)]
+    prompt_hit_limit = max(1, int(max_hits_for_prompt or DEFAULT_MAX_HITS_FOR_PROMPT))
+    prompt_hits = [hit for hit in hits[:prompt_hit_limit] if isinstance(hit, dict)]
     if not prompt_hits:
         raise ValueError("search_result.hits must contain result objects")
 
@@ -200,8 +211,36 @@ def build_messages(context: dict[str, Any], user_question: str | None = None) ->
     ]
 
 
+class _LlmResponseCache:
+    def __init__(self) -> None:
+        self._entries: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._lock = RLock()
+
+    def get(self, key: str) -> dict[str, Any] | None:
+        now = time.monotonic()
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None:
+                return None
+            expires_at, value = entry
+            if expires_at <= now:
+                self._entries.pop(key, None)
+                return None
+            return copy.deepcopy(value)
+
+    def set(self, key: str, value: dict[str, Any], ttl_seconds: int, max_entries: int) -> None:
+        if ttl_seconds <= 0 or max_entries <= 0:
+            return
+        with self._lock:
+            while len(self._entries) >= max_entries:
+                oldest_key = min(self._entries, key=lambda item: self._entries[item][0])
+                self._entries.pop(oldest_key, None)
+            self._entries[key] = (time.monotonic() + ttl_seconds, copy.deepcopy(value))
+
+
 class LlmAnalysisService:
     provider = "siliconflow"
+    prompt_version = "ann-neighborhood-analysis-v1"
 
     def analyze_search_result(
         self,
@@ -210,75 +249,182 @@ class LlmAnalysisService:
         user_question: str | None = None,
         enable_thinking: bool | None = None,
     ) -> dict[str, Any]:
-        context = build_analysis_context(search_result)
-        api_key = str(config.get("LLM_API_KEY") or "").strip()
-        if not api_key:
-            raise LlmAnalysisError("LLM API key is not configured; set SCANN_LLM_API_KEY")
-
+        started = time.perf_counter()
+        max_hits = self._config_int(config, "LLM_MAX_HITS_FOR_PROMPT", DEFAULT_MAX_HITS_FOR_PROMPT)
+        context = build_analysis_context(search_result, max_hits)
         messages = build_messages(context, user_question)
-        model = str(config.get("LLM_MODEL") or "Qwen/Qwen3-8B")
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": float(config.get("LLM_TEMPERATURE") or 0.2),
-            "max_tokens": int(config.get("LLM_MAX_TOKENS") or 600),
-        }
+        input_summary = build_input_summary(context)
+        provider_name = str(config.get("LLM_PROVIDER") or self.provider)
         thinking_enabled = bool(config.get("LLM_ENABLE_THINKING")) if enable_thinking is None else bool(enable_thinking)
-        if "qwen3" in model.lower() or thinking_enabled:
-            payload["enable_thinking"] = thinking_enabled
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
+        log_record: dict[str, Any] = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "provider": provider_name.strip().lower(),
+            "model": str(config.get("LLM_MODEL") or ""),
+            "prompt_version": self.prompt_version,
+            "status": "failed",
+            "cached": False,
+            "attempts": 0,
+            "input_summary": input_summary,
         }
 
         try:
-            response = requests.post(
-                str(config.get("LLM_API_URL")),
-                headers=headers,
-                json=payload,
-                timeout=int(config.get("LLM_TIMEOUT_SECONDS") or 60),
+            provider = get_llm_provider(provider_name)
+            log_record["provider"] = provider.name
+            log_record["model"] = provider.model(config)
+            cache_key = self._cache_key(provider, config, messages, thinking_enabled)
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+                cached["cached"] = True
+                cached["latency_ms"] = elapsed_ms
+                cached["attempts"] = 0
+                log_record.update(
+                    {
+                        "status": "success",
+                        "cached": True,
+                        "latency_ms": elapsed_ms,
+                        "usage": cached.get("usage") or {},
+                    }
+                )
+                return cached
+
+            provider_response, attempts = self._chat_with_retries(
+                provider,
+                messages,
+                config,
+                enable_thinking=thinking_enabled,
+                attempts_record=log_record,
             )
-        except requests.Timeout as exc:
-            raise LlmAnalysisError("LLM provider request timed out") from exc
-        except requests.RequestException as exc:
-            raise LlmAnalysisError(f"LLM provider request failed: {exc}") from exc
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+            payload = {
+                "analysis": provider_response.content,
+                "provider": provider.name,
+                "model": provider_response.model,
+                "usage": provider_response.usage,
+                "input_summary": input_summary,
+                "prompt_blueprint": build_prompt_blueprint(context, user_question),
+                "cached": False,
+                "latency_ms": elapsed_ms,
+                "attempts": attempts,
+            }
+            self._cache.set(
+                cache_key,
+                payload,
+                self._config_int(config, "LLM_CACHE_TTL_SECONDS", 300),
+                self._config_int(config, "LLM_CACHE_MAX_ENTRIES", 128),
+            )
+            log_record.update(
+                {
+                    "status": "success",
+                    "latency_ms": elapsed_ms,
+                    "attempts": attempts,
+                    "model": provider_response.model,
+                    "usage": provider_response.usage,
+                }
+            )
+            return payload
+        except LlmProviderError as exc:
+            message = self._sanitize_error(str(exc), config)
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+            log_record.update({"latency_ms": elapsed_ms, "error": message})
+            raise LlmAnalysisError(message) from exc
+        except LlmAnalysisError as exc:
+            message = self._sanitize_error(str(exc), config)
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+            log_record.update({"latency_ms": elapsed_ms, "error": message})
+            raise LlmAnalysisError(message) from exc
+        finally:
+            self._write_llm_log(config.get("LOG_DIR"), log_record)
 
-        if response.status_code >= 400:
-            message = self._provider_error_message(response)
-            raise LlmAnalysisError(f"LLM provider returned HTTP {response.status_code}: {message}")
+    _cache = _LlmResponseCache()
 
-        try:
-            data = response.json()
-            analysis = data["choices"][0]["message"]["content"]
-        except (ValueError, KeyError, IndexError, TypeError) as exc:
-            raise LlmAnalysisError("LLM provider returned an invalid response format") from exc
+    def _chat_with_retries(
+        self,
+        provider: BaseLlmProvider,
+        messages: list[dict[str, str]],
+        config: dict[str, Any],
+        *,
+        enable_thinking: bool,
+        attempts_record: dict[str, Any] | None = None,
+    ):
+        retry_count = max(0, self._config_int(config, "LLM_RETRY_COUNT", 3))
+        backoff_seconds = max(0.0, self._config_float(config, "LLM_RETRY_BACKOFF_SECONDS", 1.0))
+        max_attempts = retry_count + 1
+        attempts = 0
 
-        if not str(analysis).strip():
-            raise LlmAnalysisError("LLM provider returned an empty analysis")
+        for attempt in range(1, max_attempts + 1):
+            attempts = attempt
+            if attempts_record is not None:
+                attempts_record["attempts"] = attempt
+            try:
+                response = provider.chat(
+                    messages,
+                    config,
+                    extra_options={"enable_thinking": enable_thinking},
+                )
+                return response, attempts
+            except LlmProviderError as exc:
+                if not exc.retryable or attempt >= max_attempts:
+                    raise LlmAnalysisError(str(exc)) from exc
+                if backoff_seconds:
+                    time.sleep(backoff_seconds * (2 ** (attempt - 1)))
 
-        return {
-            "analysis": str(analysis).strip(),
-            "provider": self.provider,
-            "model": data.get("model") or model,
-            "usage": data.get("usage") or {},
-            "input_summary": build_input_summary(context),
-            "prompt_blueprint": build_prompt_blueprint(context, user_question),
+        raise LlmAnalysisError("LLM provider request failed")
+
+    def _cache_key(
+        self,
+        provider: BaseLlmProvider,
+        config: dict[str, Any],
+        messages: list[dict[str, str]],
+        enable_thinking: bool,
+    ) -> str:
+        payload = {
+            "prompt_version": self.prompt_version,
+            "provider": provider.name,
+            "api_url": provider.api_url(config),
+            "model": provider.model(config),
+            "temperature": self._config_float(config, "LLM_TEMPERATURE", 0.2),
+            "max_tokens": self._config_int(config, "LLM_MAX_TOKENS", 600),
+            "enable_thinking": enable_thinking,
+            "messages": messages,
         }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _provider_error_message(response: requests.Response) -> str:
+    def _config_int(config: dict[str, Any], name: str, default: int) -> int:
+        value = config.get(name, default)
         try:
-            payload = response.json()
-        except ValueError:
-            return response.text[:300] or "empty error response"
-        error = payload.get("error") if isinstance(payload, dict) else None
-        if isinstance(error, dict):
-            return str(error.get("message") or error.get("code") or "provider error")
-        if isinstance(error, str):
-            return error
-        if isinstance(payload, dict) and payload.get("message"):
-            return str(payload["message"])
-        return "provider error"
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _config_float(config: dict[str, Any], name: str, default: float) -> float:
+        value = config.get(name, default)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _sanitize_error(message: str, config: dict[str, Any]) -> str:
+        api_key = str(config.get("LLM_API_KEY") or "").strip()
+        if api_key:
+            return message.replace(api_key, "[redacted]")
+        return message
+
+    @staticmethod
+    def _write_llm_log(log_dir: Any, record: dict[str, Any]) -> None:
+        if not log_dir:
+            return
+        try:
+            path = Path(log_dir)
+            path.mkdir(parents=True, exist_ok=True)
+            with (path / "llm_analysis_log.jsonl").open("a", encoding="utf-8") as file:
+                file.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
 
 llm_analysis_service = LlmAnalysisService()

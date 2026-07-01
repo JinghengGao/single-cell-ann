@@ -7,7 +7,7 @@
 - 数据管理模块：扫描 `data/*.h5ad`、`data/datasets/*.h5ad`，上传 `.h5ad` 到 `data/uploads/`，校验 `X_pca`、`X_umap`、`obs/_index`。
 - 索引构建模块：基于 FAISS IVF_FLAT 构建 ANN 索引，支持联合索引和独立索引，GPU 可用时优先使用 GPU。
 - 查询检索模块：按 `cell_id` 执行 Top-K 相似细胞搜索，返回距离、相似度、细胞类型、疾病、年龄组、组织、UMAP 坐标和所属数据集。
-- 大模型辅助分析模块：可将 Top-K 检索结果发送到后端配置的硅基流动 Chat Completions 接口，由 `Qwen/Qwen3-8B` 生成中文邻域解读。
+- 大模型辅助分析模块：可将 Top-K 检索结果发送到后端配置的 LLM Provider，默认使用硅基流动 `Qwen/Qwen3-8B`，也支持 OpenAI 兼容接口和本地 vLLM/Ollama 服务。
 - 可视化展示模块：升级为 UMAP 分析工作台，支持元信息着色、过滤、统计摘要、基因表达叠加、Top-K 连线、点击选点和 CSV 导出。
 - 用户信息模块：未登录可预览主页，登录后按身份开放操作；支持本地演示级注册、登录、退出和当前用户显示。
 
@@ -61,7 +61,26 @@ cp .env.example .env
 # 编辑 .env，填入你的 SCANN_LLM_API_KEY
 ```
 
-配置项说明见 `.env.example` 中的注释。后端启动时会自动读取项目根目录下的 `.env` 文件。
+配置项说明见 `.env.example` 中的注释。后端启动时会自动读取项目根目录下的 `.env` 文件。常用 Provider 配置示例：
+
+```bash
+# 默认硅基流动
+SCANN_LLM_PROVIDER=siliconflow
+SCANN_LLM_API_KEY=sk-...
+SCANN_LLM_MODEL=Qwen/Qwen3-8B
+
+# OpenAI Chat Completions
+SCANN_LLM_PROVIDER=openai
+SCANN_LLM_API_KEY=sk-...
+SCANN_LLM_MODEL=gpt-4.1-mini
+
+# 本地 OpenAI-compatible 服务，如 Ollama/vLLM
+SCANN_LLM_PROVIDER=local
+SCANN_LLM_API_URL=http://127.0.0.1:11434/v1/chat/completions
+SCANN_LLM_MODEL=qwen3:8b
+```
+
+AI 分析会对可重试错误进行指数退避重试，并对“相同检索结果 + 相同问题 + 相同模型配置”的请求做短期内存缓存，减少重复 Token 消耗。可通过 `SCANN_LLM_MAX_HITS_FOR_PROMPT` 控制纳入 Prompt 的命中数量，通过 `SCANN_LLM_CACHE_TTL_SECONDS` 调整缓存时间。
 
 进入工作区后，可在左侧导航打开“AI 辅助分析”大屏，临时开启或关闭 Qwen3 思考模式；开启后分析更充分但响应会更慢。大屏会复用检索后的 UMAP 空间图展示查询细胞与 Top-K 命中位置关系，同时把系统提示词增强后的分析结构渲染为 SVG 层次图，并结合距离统计、细胞组成、查询邻域网络和 AI Markdown 报告形成完整可视化视图。
 

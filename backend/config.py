@@ -51,10 +51,16 @@ class Config:
     FAISS_NLIST = int(os.getenv("SCANN_FAISS_NLIST", "256"))
     FAISS_NPROBE = int(os.getenv("SCANN_FAISS_NPROBE", "16"))
 
-    LLM_API_URL = os.getenv("SCANN_LLM_API_URL", "https://api.siliconflow.cn/v1/chat/completions")
+    LLM_PROVIDER = os.getenv("SCANN_LLM_PROVIDER", "siliconflow")
+    LLM_API_URL = os.getenv("SCANN_LLM_API_URL", "")
     LLM_API_KEY = os.getenv("SCANN_LLM_API_KEY", "")
-    LLM_MODEL = os.getenv("SCANN_LLM_MODEL", "Qwen/Qwen3-8B")
+    LLM_MODEL = os.getenv("SCANN_LLM_MODEL", "")
     LLM_TIMEOUT_SECONDS = int(os.getenv("SCANN_LLM_TIMEOUT_SECONDS", "90"))
     LLM_MAX_TOKENS = int(os.getenv("SCANN_LLM_MAX_TOKENS", "600"))
     LLM_TEMPERATURE = float(os.getenv("SCANN_LLM_TEMPERATURE", "0.2"))
     LLM_ENABLE_THINKING = os.getenv("SCANN_LLM_ENABLE_THINKING", "false").lower() in {"1", "true", "yes"}
+    LLM_MAX_HITS_FOR_PROMPT = int(os.getenv("SCANN_LLM_MAX_HITS_FOR_PROMPT", "50"))
+    LLM_RETRY_COUNT = int(os.getenv("SCANN_LLM_RETRY_COUNT", "3"))
+    LLM_RETRY_BACKOFF_SECONDS = float(os.getenv("SCANN_LLM_RETRY_BACKOFF_SECONDS", "1"))
+    LLM_CACHE_TTL_SECONDS = int(os.getenv("SCANN_LLM_CACHE_TTL_SECONDS", "300"))
+    LLM_CACHE_MAX_ENTRIES = int(os.getenv("SCANN_LLM_CACHE_MAX_ENTRIES", "128"))

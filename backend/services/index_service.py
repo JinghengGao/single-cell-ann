@@ -113,6 +113,7 @@ class IndexService:
         *,
         dataset_ids: list[str] | None = None,
         build_mode: str = "combined",
+        metric: str = "l2",
         registry_path: Path | None = None,
     ) -> dict[str, Any]:
         with self._lock:
@@ -130,10 +131,13 @@ class IndexService:
             build_mode = (build_mode or "combined").lower()
             if build_mode not in {"combined", "separate"}:
                 raise ValueError("mode must be combined or separate")
+            metric = (metric or "l2").lower()
+            if metric not in ("l2", "cosine", "ip"):
+                raise ValueError("metric must be l2, cosine, or ip")
 
             snapshots = self._resolve_snapshots(dataset_ids or [], registry_path)
             if build_mode == "combined":
-                bundle = self._build_combined_index(faiss, runtime, index_dir, snapshots, nlist, nprobe)
+                bundle = self._build_combined_index(faiss, runtime, index_dir, snapshots, nlist, nprobe, metric=metric)
                 self._indexes[bundle.snapshot.index_id] = bundle
                 self._active_index_id = bundle.snapshot.index_id
                 self._snapshot = bundle.snapshot
@@ -141,7 +145,7 @@ class IndexService:
 
             built = []
             for snapshot in snapshots:
-                bundle = self._build_single_index(faiss, runtime, index_dir, snapshot, nlist, nprobe)
+                bundle = self._build_single_index(faiss, runtime, index_dir, snapshot, nlist, nprobe, metric=metric)
                 self._indexes[bundle.snapshot.index_id] = bundle
                 built.append(bundle.snapshot.summary())
 
@@ -152,9 +156,60 @@ class IndexService:
             status["built_indexes"] = built
             return status
 
+    def build_hnsw(
+        self,
+        index_dir: Path,
+        *,
+        dataset_ids: list[str] | None = None,
+        build_mode: str = "combined",
+        metric: str = "l2",
+        M: int = 32,
+        ef_construction: int = 200,
+        ef_search: int = 64,
+        registry_path: Path | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            runtime = inspect_faiss_runtime()
+            if not runtime.available:
+                self._snapshot = IndexSnapshot(status="error", mode="unavailable", error=runtime.error or "FAISS is not available")
+                raise RuntimeError(self._snapshot.error)
+
+            import faiss  # type: ignore
+
+            build_mode = (build_mode or "combined").lower()
+            if build_mode not in {"combined", "separate"}:
+                raise ValueError("mode must be combined or separate")
+            metric = (metric or "l2").lower()
+            if metric not in ("l2", "cosine", "ip"):
+                raise ValueError("metric must be l2, cosine, or ip")
+
+            snapshots = self._resolve_snapshots(dataset_ids or [], registry_path)
+            if build_mode == "combined":
+                bundle = self._build_combined_hnsw(faiss, runtime, index_dir, snapshots, M, ef_construction, ef_search, metric=metric)
+                self._indexes[bundle.snapshot.index_id] = bundle
+                self._active_index_id = bundle.snapshot.index_id
+                self._snapshot = bundle.snapshot
+                return self.status()
+
+            built = []
+            for snapshot in snapshots:
+                bundle = self._build_single_hnsw(faiss, runtime, index_dir, snapshot, M, ef_construction, ef_search, metric=metric)
+                self._indexes[bundle.snapshot.index_id] = bundle
+                built.append(bundle.snapshot.summary())
+            if built:
+                self._active_index_id = built[0]["index_id"]
+                self._snapshot = self._indexes[self._active_index_id].snapshot
+            status = self.status()
+            status["built_indexes"] = built
+            return status
+
     def search(self, query_vector: np.ndarray, top_k: int, index_id: str | None = None) -> tuple[np.ndarray, np.ndarray, IndexBundle]:
         bundle = self._active_bundle(index_id)
         query = np.ascontiguousarray(query_vector.reshape(1, -1).astype("float32", copy=False))
+        # 当索引使用 cosine/ip 度量时，查询向量也需归一化
+        metric = bundle.snapshot.metric
+        if metric in ("cosine", "ip"):
+            query = self._normalize_for_metric(query, metric)
         distances, indices = bundle.search_index.search(query, int(top_k))
         return distances[0], indices[0], bundle
 
@@ -178,6 +233,8 @@ class IndexService:
         snapshots: list[DatasetSnapshot],
         nlist: int,
         nprobe: int,
+        *,
+        metric: str = "l2",
     ) -> IndexBundle:
         dimension = self._require_shared_dimension(snapshots)
         vectors = np.ascontiguousarray(np.vstack([snapshot.vectors for snapshot in snapshots]).astype("float32", copy=False))
@@ -189,17 +246,8 @@ class IndexService:
         dataset_ids = [snapshot.dataset_id for snapshot in snapshots]
         index_id = self._combined_index_id(dataset_ids)
         return self._build_index(
-            faiss,
-            runtime,
-            index_dir,
-            index_id,
-            "combined",
-            dataset_ids,
-            vectors,
-            dimension,
-            index_to_cell,
-            nlist,
-            nprobe,
+            faiss, runtime, index_dir, index_id, "combined", dataset_ids,
+            vectors, dimension, index_to_cell, nlist, nprobe, metric=metric,
         )
 
     def _build_single_index(
@@ -210,6 +258,8 @@ class IndexService:
         snapshot: DatasetSnapshot,
         nlist: int,
         nprobe: int,
+        *,
+        metric: str = "l2",
     ) -> IndexBundle:
         if snapshot.vectors is None:
             raise RuntimeError(f"Dataset has no vectors: {snapshot.dataset_id}")
@@ -217,18 +267,56 @@ class IndexService:
         index_to_cell = [CellRef(dataset_id=snapshot.dataset_id, row_index=row_index) for row_index in range(snapshot.cell_count)]
         index_id = self._safe_index_id(f"{snapshot.dataset_id}_ivf_flat")
         return self._build_index(
-            faiss,
-            runtime,
-            index_dir,
-            index_id,
-            "separate",
-            [snapshot.dataset_id],
-            vectors,
-            snapshot.vector_dim,
-            index_to_cell,
-            nlist,
-            nprobe,
+            faiss, runtime, index_dir, index_id, "separate", [snapshot.dataset_id],
+            vectors, snapshot.vector_dim, index_to_cell, nlist, nprobe, metric=metric,
         )
+
+    def _build_combined_hnsw(
+        self, faiss: Any, runtime: Any, index_dir: Path,
+        snapshots: list[DatasetSnapshot], M: int, ef_construction: int, ef_search: int,
+        *, metric: str = "l2",
+    ) -> IndexBundle:
+        dimension = self._require_shared_dimension(snapshots)
+        vectors = np.ascontiguousarray(np.vstack([s.vectors for s in snapshots]).astype("float32", copy=False))
+        index_to_cell = [CellRef(dataset_id=s.dataset_id, row_index=i) for s in snapshots for i in range(s.cell_count)]
+        dataset_ids = [s.dataset_id for s in snapshots]
+        index_id = self._combined_index_id(dataset_ids).replace("ivf_flat", "hnsw")
+        return self._build_hnsw_index(
+            faiss, runtime, index_dir, index_id, "combined", dataset_ids,
+            vectors, dimension, index_to_cell, M, ef_construction, ef_search, metric=metric,
+        )
+
+    def _build_single_hnsw(
+        self, faiss: Any, runtime: Any, index_dir: Path,
+        snapshot: DatasetSnapshot, M: int, ef_construction: int, ef_search: int,
+        *, metric: str = "l2",
+    ) -> IndexBundle:
+        if snapshot.vectors is None:
+            raise RuntimeError(f"Dataset has no vectors: {snapshot.dataset_id}")
+        vectors = np.ascontiguousarray(snapshot.vectors.astype("float32", copy=False))
+        index_to_cell = [CellRef(dataset_id=snapshot.dataset_id, row_index=i) for i in range(snapshot.cell_count)]
+        index_id = self._safe_index_id(f"{snapshot.dataset_id}_hnsw")
+        return self._build_hnsw_index(
+            faiss, runtime, index_dir, index_id, "separate", [snapshot.dataset_id],
+            vectors, snapshot.vector_dim, index_to_cell, M, ef_construction, ef_search, metric=metric,
+        )
+
+    @staticmethod
+    def _faiss_metric(faiss: Any, metric: str) -> int:
+        if metric == "cosine":
+            return faiss.METRIC_INNER_PRODUCT
+        elif metric == "ip":
+            return faiss.METRIC_INNER_PRODUCT
+        return faiss.METRIC_L2
+
+    @staticmethod
+    def _normalize_for_metric(vectors: np.ndarray, metric: str) -> np.ndarray:
+        if metric in ("cosine", "ip"):
+            import numpy as np
+            norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+            norms = np.where(norms == 0, 1.0, norms)
+            return vectors / norms
+        return vectors
 
     def _build_index(
         self,
@@ -243,14 +331,18 @@ class IndexService:
         index_to_cell: list[CellRef],
         nlist: int,
         nprobe: int,
+        *,
+        metric: str = "l2",
     ) -> IndexBundle:
         vector_count = int(vectors.shape[0])
         effective_nlist = max(1, min(int(nlist), vector_count))
         effective_nprobe = max(1, min(int(nprobe), effective_nlist))
+        faiss_metric = self._faiss_metric(faiss, metric)
+        vectors = self._normalize_for_metric(vectors, metric)
 
         start = time.perf_counter()
-        cpu_quantizer = faiss.IndexFlatL2(dimension)
-        cpu_index = faiss.IndexIVFFlat(cpu_quantizer, dimension, effective_nlist, faiss.METRIC_L2)
+        cpu_quantizer = faiss.IndexFlat(dimension, faiss_metric)
+        cpu_index = faiss.IndexIVFFlat(cpu_quantizer, dimension, effective_nlist, faiss_metric)
         cpu_index.nprobe = effective_nprobe
         cpu_index.train(vectors)
         cpu_index.add(vectors)
@@ -277,9 +369,12 @@ class IndexService:
 
         duration_ms = (time.perf_counter() - start) * 1000
         self._faiss = faiss
+        type_label = "IVF_FLAT"
         snapshot = IndexSnapshot(
             index_id=index_id,
             status="ready",
+            index_type=type_label,
+            metric=metric,
             build_mode=build_mode,
             mode=faiss_mode,
             dataset_ids=dataset_ids,
@@ -287,6 +382,77 @@ class IndexService:
             dimension=dimension,
             nlist=effective_nlist,
             nprobe=effective_nprobe,
+            index_path=str(index_path.resolve()),
+            build_duration_ms=round(duration_ms, 3),
+            error=None,
+        )
+        return IndexBundle(
+            snapshot=snapshot,
+            cpu_index=cpu_index,
+            search_index=search_index,
+            gpu_resources=gpu_resources,
+            index_to_cell=index_to_cell,
+        )
+
+    def _build_hnsw_index(
+        self,
+        faiss: Any,
+        runtime: Any,
+        index_dir: Path,
+        index_id: str,
+        build_mode: str,
+        dataset_ids: list[str],
+        vectors: np.ndarray,
+        dimension: int,
+        index_to_cell: list[CellRef],
+        M: int,
+        ef_construction: int,
+        ef_search: int,
+        *,
+        metric: str = "l2",
+    ) -> IndexBundle:
+        faiss_metric = self._faiss_metric(faiss, metric)
+        vectors = self._normalize_for_metric(vectors, metric)
+
+        start = time.perf_counter()
+        cpu_index = faiss.IndexHNSWFlat(dimension, max(4, int(M)), faiss_metric)
+        cpu_index.hnsw.efConstruction = max(8, int(ef_construction))
+        cpu_index.hnsw.efSearch = max(1, int(ef_search))
+        cpu_index.add(vectors)
+
+        search_index = cpu_index
+        gpu_resources = None
+        faiss_mode = "cpu"
+        if runtime.gpu_count > 0:
+            try:
+                gpu_resources = faiss.StandardGpuResources()
+                search_index = faiss.index_cpu_to_gpu(gpu_resources, 0, cpu_index)
+                faiss_mode = "gpu"
+            except Exception:
+                gpu_resources = None
+                search_index = cpu_index
+                faiss_mode = "cpu"
+
+        search_index.search(vectors[:1], 1)
+
+        index_dir.mkdir(parents=True, exist_ok=True)
+        index_path = index_dir / f"{index_id}.faiss"
+        faiss.write_index(cpu_index, str(index_path))
+
+        duration_ms = (time.perf_counter() - start) * 1000
+        self._faiss = faiss
+        snapshot = IndexSnapshot(
+            index_id=index_id,
+            status="ready",
+            index_type="HNSW",
+            metric=metric,
+            build_mode=build_mode,
+            mode=faiss_mode,
+            dataset_ids=dataset_ids,
+            vector_count=int(vectors.shape[0]),
+            dimension=dimension,
+            nlist=0,
+            nprobe=ef_search,
             index_path=str(index_path.resolve()),
             build_duration_ms=round(duration_ms, 3),
             error=None,

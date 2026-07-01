@@ -296,6 +296,7 @@ def test_llm_analysis_rejects_missing_or_empty_results():
 def test_llm_analysis_reports_unconfigured_api_key():
     with runtime_tmpdir() as tmp_path:
         class TestConfig(make_test_config(tmp_path)):
+            LLM_PROVIDER = "siliconflow"
             LLM_API_KEY = ""
 
         app = create_app(TestConfig)
@@ -313,6 +314,7 @@ def test_llm_analysis_reports_unconfigured_api_key():
 def test_llm_analysis_calls_chat_completions_and_returns_summary(monkeypatch):
     with runtime_tmpdir() as tmp_path:
         class TestConfig(make_test_config(tmp_path)):
+            LLM_PROVIDER = "siliconflow"
             LLM_API_URL = "https://api.siliconflow.cn/v1/chat/completions"
             LLM_API_KEY = "test-secret"
             LLM_MODEL = "Qwen/Qwen3-8B"
@@ -333,7 +335,7 @@ def test_llm_analysis_calls_chat_completions_and_returns_summary(monkeypatch):
                 }
             )
 
-        monkeypatch.setattr("backend.services.llm_analysis_service.requests.post", fake_post)
+        monkeypatch.setattr("backend.services.llm_providers.requests.post", fake_post)
         app = create_app(TestConfig)
         client = app.test_client()
         headers = auth_headers(client, "normal_user", "normal_for_llm_success")
@@ -350,6 +352,9 @@ def test_llm_analysis_calls_chat_completions_and_returns_summary(monkeypatch):
         assert payload["provider"] == "siliconflow"
         assert payload["model"] == "Qwen/Qwen3-8B"
         assert payload["usage"]["total_tokens"] == 150
+        assert payload["cached"] is False
+        assert payload["attempts"] == 1
+        assert payload["latency_ms"] >= 0
         assert payload["input_summary"]["query_cell_id"] == "query-cell-1"
         assert payload["input_summary"]["cell_type_counts"][0] == {"value": "hepatocyte", "count": 2}
         assert payload["prompt_blueprint"]["root"]["label"] == "用户分析问题"
@@ -364,6 +369,7 @@ def test_llm_analysis_calls_chat_completions_and_returns_summary(monkeypatch):
 def test_llm_analysis_accepts_per_request_thinking_mode(monkeypatch):
     with runtime_tmpdir() as tmp_path:
         class TestConfig(make_test_config(tmp_path)):
+            LLM_PROVIDER = "siliconflow"
             LLM_API_KEY = "test-secret"
             LLM_ENABLE_THINKING = False
 
@@ -379,7 +385,7 @@ def test_llm_analysis_accepts_per_request_thinking_mode(monkeypatch):
                 }
             )
 
-        monkeypatch.setattr("backend.services.llm_analysis_service.requests.post", fake_post)
+        monkeypatch.setattr("backend.services.llm_providers.requests.post", fake_post)
         app = create_app(TestConfig)
         client = app.test_client()
         headers = auth_headers(client, "normal_user", "normal_for_llm_thinking")
@@ -413,13 +419,14 @@ def test_llm_analysis_rejects_invalid_thinking_mode():
 def test_llm_analysis_wraps_provider_errors(monkeypatch):
     with runtime_tmpdir() as tmp_path:
         class TestConfig(make_test_config(tmp_path)):
+            LLM_PROVIDER = "siliconflow"
             LLM_API_URL = "https://api.siliconflow.cn/v1/chat/completions"
             LLM_API_KEY = "test-secret"
 
         def fake_post(url, *, headers, json, timeout):
             return FakeLlmResponse(status_code=429, payload={"error": {"message": "rate limit"}})
 
-        monkeypatch.setattr("backend.services.llm_analysis_service.requests.post", fake_post)
+        monkeypatch.setattr("backend.services.llm_providers.requests.post", fake_post)
         app = create_app(TestConfig)
         client = app.test_client()
         headers = auth_headers(client, "normal_user", "normal_for_llm_error")
@@ -431,6 +438,145 @@ def test_llm_analysis_wraps_provider_errors(monkeypatch):
         assert payload["error"] == "llm_unavailable"
         assert "429" in payload["message"]
         assert "test-secret" not in payload["message"]
+
+
+def test_llm_analysis_retries_retryable_provider_errors(monkeypatch):
+    with runtime_tmpdir() as tmp_path:
+        class TestConfig(make_test_config(tmp_path)):
+            LLM_PROVIDER = "siliconflow"
+            LLM_API_KEY = "test-secret"
+            LLM_RETRY_COUNT = 2
+            LLM_RETRY_BACKOFF_SECONDS = 0
+
+        calls = {"count": 0}
+
+        def fake_post(url, *, headers, json, timeout):
+            calls["count"] += 1
+            if calls["count"] < 3:
+                return FakeLlmResponse(status_code=503, payload={"error": {"message": "temporarily unavailable"}})
+            return FakeLlmResponse(
+                payload={
+                    "model": "Qwen/Qwen3-8B",
+                    "choices": [{"message": {"content": "## 检索邻域概览\n\n重试后成功。"}}],
+                    "usage": {"total_tokens": 42},
+                }
+            )
+
+        monkeypatch.setattr("backend.services.llm_providers.requests.post", fake_post)
+        app = create_app(TestConfig)
+        client = app.test_client()
+        headers = auth_headers(client, "normal_user", "normal_for_llm_retry")
+
+        response = client.post("/api/search/analyze", json={"search_result": sample_search_result()}, headers=headers)
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload["attempts"] == 3
+        assert calls["count"] == 3
+
+
+def test_llm_analysis_caches_repeated_requests(monkeypatch):
+    with runtime_tmpdir() as tmp_path:
+        class TestConfig(make_test_config(tmp_path)):
+            LLM_PROVIDER = "siliconflow"
+            LLM_API_KEY = "test-secret"
+            LLM_CACHE_TTL_SECONDS = 300
+            LLM_CACHE_MAX_ENTRIES = 8
+
+        calls = {"count": 0}
+
+        def fake_post(url, *, headers, json, timeout):
+            calls["count"] += 1
+            return FakeLlmResponse(
+                payload={
+                    "model": "Qwen/Qwen3-8B",
+                    "choices": [{"message": {"content": "## 检索邻域概览\n\n来自缓存测试。"}}],
+                    "usage": {"total_tokens": 31},
+                }
+            )
+
+        monkeypatch.setattr("backend.services.llm_providers.requests.post", fake_post)
+        app = create_app(TestConfig)
+        client = app.test_client()
+        headers = auth_headers(client, "normal_user", "normal_for_llm_cache")
+        request_json = {"search_result": sample_search_result(), "question": "缓存测试"}
+
+        first = client.post("/api/search/analyze", json=request_json, headers=headers)
+        second = client.post("/api/search/analyze", json=request_json, headers=headers)
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.get_json()["cached"] is False
+        assert second.get_json()["cached"] is True
+        assert second.get_json()["attempts"] == 0
+        assert calls["count"] == 1
+
+
+def test_llm_analysis_supports_local_provider_without_api_key(monkeypatch):
+    with runtime_tmpdir() as tmp_path:
+        class TestConfig(make_test_config(tmp_path)):
+            LLM_PROVIDER = "local"
+            LLM_API_URL = ""
+            LLM_API_KEY = ""
+            LLM_MODEL = "qwen3:8b"
+            LLM_CACHE_TTL_SECONDS = 0
+
+        captured = {}
+
+        def fake_post(url, *, headers, json, timeout):
+            captured.update({"url": url, "headers": headers, "json": json})
+            return FakeLlmResponse(
+                payload={
+                    "model": "qwen3:8b",
+                    "choices": [{"message": {"content": "## 检索邻域概览\n\n本地模型分析完成。"}}],
+                    "usage": {"total_tokens": 18},
+                }
+            )
+
+        monkeypatch.setattr("backend.services.llm_providers.requests.post", fake_post)
+        app = create_app(TestConfig)
+        client = app.test_client()
+        headers = auth_headers(client, "normal_user", "normal_for_llm_local")
+
+        response = client.post("/api/search/analyze", json={"search_result": sample_search_result()}, headers=headers)
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload["provider"] == "local"
+        assert payload["model"] == "qwen3:8b"
+        assert captured["url"] == "http://127.0.0.1:11434/v1/chat/completions"
+        assert "Authorization" not in captured["headers"]
+
+
+def test_llm_analysis_prompt_hit_limit_is_configurable(monkeypatch):
+    with runtime_tmpdir() as tmp_path:
+        class TestConfig(make_test_config(tmp_path)):
+            LLM_PROVIDER = "siliconflow"
+            LLM_API_KEY = "test-secret"
+            LLM_MAX_HITS_FOR_PROMPT = 2
+            LLM_CACHE_TTL_SECONDS = 0
+
+        def fake_post(url, *, headers, json, timeout):
+            return FakeLlmResponse(
+                payload={
+                    "model": "Qwen/Qwen3-8B",
+                    "choices": [{"message": {"content": "## 检索邻域概览\n\n只纳入两个命中。"}}],
+                    "usage": {"total_tokens": 25},
+                }
+            )
+
+        monkeypatch.setattr("backend.services.llm_providers.requests.post", fake_post)
+        app = create_app(TestConfig)
+        client = app.test_client()
+        headers = auth_headers(client, "normal_user", "normal_for_llm_limit")
+
+        response = client.post("/api/search/analyze", json={"search_result": sample_search_result()}, headers=headers)
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload["input_summary"]["included_hit_count"] == 2
+        assert payload["input_summary"]["truncated"] is True
+        assert payload["input_summary"]["cell_type_counts"] == [{"value": "hepatocyte", "count": 2}]
 
 
 def test_visualization_filters_stats_and_gene_expression_overlay():

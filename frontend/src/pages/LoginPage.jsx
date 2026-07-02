@@ -8,7 +8,7 @@ import { Field, StatusBadge } from "../components/ui";
 
 export function LoginPage({ workspace, onBack, onBrowse }) {
   const [mode, setMode] = useState("login");
-  const [form, setForm] = useState({ username: "", password: "", role: "admin" });
+  const [form, setForm] = useState({ username: "", password: "", role: "normal_user" });
   const disabled = Boolean(workspace.busy);
 
   function changeMode(nextMode) {
@@ -130,10 +130,9 @@ export function LoginPage({ workspace, onBack, onBrowse }) {
             {mode === "register" ? (
               <Field label="账户角色">
                 <select value={form.role} onChange={(event) => updateForm("role", event.target.value)}>
-                  <option value="admin">管理员</option>
-                  <option value="data_manager">数据维护者</option>
-                  <option value="researcher">研究人员</option>
                   <option value="normal_user">普通用户</option>
+                  <option value="researcher">研究人员</option>
+                  <option value="data_manager">数据维护者</option>
                 </select>
               </Field>
             ) : null}

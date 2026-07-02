@@ -72,6 +72,5 @@ ehthumbs.db
 *.docx
 *.xlsx
 *.zip
-docs/*
 .claude/*
 .codex/*

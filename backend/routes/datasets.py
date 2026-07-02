@@ -89,6 +89,66 @@ def dataset_detail(dataset_id: str):
         return jsonify({"error": "unknown_dataset", "message": str(exc)}), 404
 
 
+@datasets_bp.patch("/<dataset_id>/metadata")
+@require_roles("data_manager", "admin")
+def update_dataset_metadata(dataset_id: str):
+    payload = request.get_json(silent=True) or {}
+    try:
+        return jsonify(
+            data_service.update_dataset_metadata(
+                dataset_id,
+                current_app.config["DATASET_REGISTRY_PATH"],
+                payload,
+            )
+        )
+    except KeyError as exc:
+        return jsonify({"error": "unknown_dataset", "message": str(exc)}), 404
+
+
+@datasets_bp.post("/<dataset_id>/activate")
+@require_roles("researcher", "data_manager", "admin")
+def activate_dataset(dataset_id: str):
+    try:
+        return jsonify(data_service.activate_dataset(dataset_id, current_app.config["DATASET_REGISTRY_PATH"]))
+    except KeyError as exc:
+        return jsonify({"error": "unknown_dataset", "message": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"error": "invalid_dataset", "message": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"error": "dataset_unavailable", "message": str(exc)}), 503
+
+
+@datasets_bp.post("/<dataset_id>/offline")
+@require_roles("data_manager", "admin")
+def offline_dataset(dataset_id: str):
+    try:
+        return jsonify(data_service.update_dataset_status(dataset_id, current_app.config["DATASET_REGISTRY_PATH"], "offline"))
+    except KeyError as exc:
+        return jsonify({"error": "unknown_dataset", "message": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"error": "invalid_dataset", "message": str(exc)}), 400
+
+
+@datasets_bp.post("/<dataset_id>/restore")
+@require_roles("data_manager", "admin")
+def restore_dataset(dataset_id: str):
+    try:
+        return jsonify(data_service.update_dataset_status(dataset_id, current_app.config["DATASET_REGISTRY_PATH"], "registered"))
+    except KeyError as exc:
+        return jsonify({"error": "unknown_dataset", "message": str(exc)}), 404
+    except ValueError as exc:
+        return jsonify({"error": "invalid_dataset", "message": str(exc)}), 400
+
+
+@datasets_bp.delete("/<dataset_id>")
+@require_roles("data_manager", "admin")
+def delete_dataset(dataset_id: str):
+    try:
+        return jsonify({"deleted": data_service.delete_dataset(dataset_id, current_app.config["DATASET_REGISTRY_PATH"])})
+    except KeyError as exc:
+        return jsonify({"error": "unknown_dataset", "message": str(exc)}), 404
+
+
 @datasets_bp.post("/<dataset_id>/validate")
 @require_roles("data_manager", "admin")
 def validate_dataset(dataset_id: str):

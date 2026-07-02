@@ -26,6 +26,9 @@ class DatasetRecord:
     name: str
     data_path: str
     source: str = "local"
+    description: str = ""
+    species: str = ""
+    tissue: str = ""
     status: str = "registered"
     file_size_bytes: int = 0
     cell_count: int = 0
@@ -47,6 +50,9 @@ class DatasetRecord:
             "dataset_id": self.dataset_id,
             "name": self.name,
             "source": self.source,
+            "description": self.description,
+            "species": self.species,
+            "tissue": self.tissue,
             "status": self.status,
             "data_path": self.data_path,
             "file_size_bytes": self.file_size_bytes,
@@ -58,6 +64,8 @@ class DatasetRecord:
             "sample_cell_ids": self.sample_cell_ids,
             "loaded": self.loaded,
             "error": self.error,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
         }
 
 
@@ -188,9 +196,63 @@ class DataService:
             self._save_registry(registry_path)
             return record.summary()
 
+    def update_dataset_metadata(self, dataset_id: str, registry_path: Path, updates: dict[str, Any]) -> dict[str, Any]:
+        editable_fields = {"name", "description", "source", "species", "tissue"}
+        with self._lock:
+            record = self._get_record(dataset_id, registry_path)
+            for field_name in editable_fields:
+                if field_name in updates:
+                    setattr(record, field_name, str(updates.get(field_name) or "").strip())
+            record.updated_at = self._now()
+            self._save_registry(registry_path)
+            return record.summary()
+
+    def update_dataset_status(self, dataset_id: str, registry_path: Path, status: str) -> dict[str, Any]:
+        status = status.strip().lower()
+        if status not in {"registered", "validated", "loaded", "offline"}:
+            raise ValueError(f"unsupported dataset status: {status}")
+        with self._lock:
+            record = self._get_record(dataset_id, registry_path)
+            if status == "loaded" and dataset_id not in self._snapshots:
+                raise ValueError("dataset must be loaded before setting loaded status")
+            record.status = status
+            record.updated_at = self._now()
+            record.error = None
+            if status == "offline":
+                self._snapshots.pop(dataset_id, None)
+                if self._active_dataset_id == dataset_id:
+                    self._active_dataset_id = next(iter(self._snapshots), None)
+                    self._snapshot = self._snapshots[self._active_dataset_id] if self._active_dataset_id else DatasetSnapshot()
+            self._save_registry(registry_path)
+            return record.summary()
+
+    def delete_dataset(self, dataset_id: str, registry_path: Path) -> dict[str, Any]:
+        with self._lock:
+            record = self._get_record(dataset_id, registry_path)
+            deleted = record.summary()
+            self._records.pop(dataset_id, None)
+            self._snapshots.pop(dataset_id, None)
+            if self._active_dataset_id == dataset_id:
+                self._active_dataset_id = next(iter(self._snapshots), None)
+                self._snapshot = self._snapshots[self._active_dataset_id] if self._active_dataset_id else DatasetSnapshot()
+            self._save_registry(registry_path)
+            return deleted
+
+    def activate_dataset(self, dataset_id: str, registry_path: Path) -> dict[str, Any]:
+        with self._lock:
+            record = self._get_record(dataset_id, registry_path)
+            if record.status == "offline":
+                raise ValueError("offline dataset cannot be activated")
+            snapshot = self.get_snapshot(dataset_id, registry_path=registry_path)
+            self._active_dataset_id = dataset_id
+            self._snapshot = snapshot
+            return snapshot.summary()
+
     def validate_dataset(self, dataset_id: str, registry_path: Path) -> dict[str, Any]:
         with self._lock:
             record = self._get_record(dataset_id, registry_path)
+            if record.status == "offline":
+                raise ValueError("offline dataset cannot be validated")
             try:
                 validation = self._inspect_h5ad(self._resolve_data_path(record.data_path))
                 record.status = "validated"
@@ -239,6 +301,8 @@ class DataService:
                 if registry_path is None:
                     raise ValueError("registry_path is required when dataset_id is used")
                 record = self._get_record(dataset_id, registry_path)
+                if record.status == "offline":
+                    raise ValueError("offline dataset cannot be loaded")
                 resolved = self._resolve_data_path(record.data_path)
             elif path is not None:
                 resolved = path.resolve()

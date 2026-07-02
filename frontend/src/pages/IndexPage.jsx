@@ -1,4 +1,5 @@
-import { Boxes, Cpu, Database, GitBranch, Layers3, LoaderCircle, Play, ServerCog } from "lucide-react";
+import { useState } from "react";
+import { Boxes, Cpu, Database, FolderOpen, GitBranch, Layers3, LoaderCircle, Play, ServerCog, Trash2 } from "lucide-react";
 
 import { formatNumber, statusTone } from "../constants";
 import { AccessNotice, EmptyState, Field, StatusBadge } from "../components/ui";
@@ -14,6 +15,7 @@ function IndexStat({ icon, label, value }) {
 }
 
 export function IndexPage({ workspace, guestMode }) {
+  const [loadIndexId, setLoadIndexId] = useState("");
   const activeIndex = workspace.activeIndex || {};
   const buildDisabled = Boolean(workspace.busy) || !workspace.canBuildIndex || !workspace.selectedDatasetIds.length;
   const faissMode = activeIndex.ready ? activeIndex.mode : workspace.health?.faiss?.mode || activeIndex.mode || "-";
@@ -102,6 +104,15 @@ export function IndexPage({ workspace, guestMode }) {
             {workspace.busy === "index" ? <LoaderCircle size={17} className="spin" /> : <Play size={17} />}
             构建索引
           </button>
+          <div className="index-load-box">
+            <Field label="加载已有索引 ID" hint="需要 .faiss 和 .meta.json">
+              <input value={loadIndexId} onChange={(event) => setLoadIndexId(event.target.value)} placeholder="例如 liver_ivf_flat" disabled={!workspace.canSwitchIndex} />
+            </Field>
+            <button className="secondary-button full-button" onClick={() => workspace.handleLoadIndex(loadIndexId.trim())} disabled={Boolean(workspace.busy) || !workspace.canSwitchIndex || !loadIndexId.trim()}>
+              {workspace.busy === "load-index" ? <LoaderCircle size={16} className="spin" /> : <FolderOpen size={16} />}
+              加载磁盘索引
+            </button>
+          </div>
         </section>
 
         <section className="index-list-panel">
@@ -132,6 +143,18 @@ export function IndexPage({ workspace, guestMode }) {
                   >
                     {item.index_id === activeIndex.index_id ? "当前服务" : "切换"}
                   </button>
+                  {workspace.canManageDatasets ? (
+                    <button
+                      className="secondary-button small-button danger-button"
+                      onClick={() => {
+                        if (window.confirm(`确定删除索引 "${item.index_id}"？`)) workspace.handleDeleteIndex(item.index_id);
+                      }}
+                      disabled={Boolean(workspace.busy)}
+                      title="删除索引"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  ) : null}
                 </article>
               ))}
             </div>

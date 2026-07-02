@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Database, FileCheck2, LoaderCircle, Play, RefreshCw, Upload } from "lucide-react";
+import { Database, FileCheck2, LoaderCircle, Play, Power, RefreshCw, RotateCcw, Save, Trash2, Upload } from "lucide-react";
 
 import { formatBytes, formatNumber } from "../constants";
 import { AccessNotice, EmptyState, StatusBadge } from "../components/ui";
 
 export function DatasetPage({ workspace, guestMode }) {
   const [focusDatasetId, setFocusDatasetId] = useState("");
+  const [metadataForm, setMetadataForm] = useState({ name: "", source: "", species: "", tissue: "", description: "" });
   const focusDataset =
     workspace.datasets.find((dataset) => dataset.dataset_id === focusDatasetId) ||
     workspace.datasets.find((dataset) => dataset.dataset_id === workspace.selectedDatasetIds[0]) ||
@@ -15,6 +16,32 @@ export function DatasetPage({ workspace, guestMode }) {
   useEffect(() => {
     if (focusDataset) setFocusDatasetId(focusDataset.dataset_id);
   }, [focusDataset?.dataset_id]);
+
+  useEffect(() => {
+    if (!focusDataset) return;
+    setMetadataForm({
+      name: focusDataset.name || "",
+      source: focusDataset.source || "",
+      species: focusDataset.species || "",
+      tissue: focusDataset.tissue || "",
+      description: focusDataset.description || "",
+    });
+  }, [focusDataset?.dataset_id, focusDataset?.updated_at]);
+
+  function updateMetadataField(fieldName, value) {
+    setMetadataForm((current) => ({ ...current, [fieldName]: value }));
+  }
+
+  function saveMetadata() {
+    if (!focusDataset) return;
+    workspace.handleUpdateDatasetMetadata(focusDataset.dataset_id, metadataForm);
+  }
+
+  function deleteFocusedDataset() {
+    if (!focusDataset) return;
+    if (!window.confirm(`确定从登记表删除数据集 "${focusDataset.name}"？原始数据文件不会被删除。`)) return;
+    workspace.handleDeleteDataset(focusDataset.dataset_id);
+  }
 
   return (
     <div className="registry-layout">
@@ -135,6 +162,53 @@ export function DatasetPage({ workspace, guestMode }) {
                 {(focusDataset.sample_cell_ids || []).slice(0, 5).map((cellId) => <span key={cellId}>{cellId}</span>)}
               </div>
             </section>
+            {workspace.canManageDatasets ? (
+              <section className="detail-section">
+                <h3>元信息维护</h3>
+                <div className="metadata-edit-grid">
+                  <label>
+                    名称
+                    <input value={metadataForm.name} onChange={(event) => updateMetadataField("name", event.target.value)} />
+                  </label>
+                  <label>
+                    来源
+                    <input value={metadataForm.source} onChange={(event) => updateMetadataField("source", event.target.value)} />
+                  </label>
+                  <label>
+                    物种
+                    <input value={metadataForm.species} onChange={(event) => updateMetadataField("species", event.target.value)} />
+                  </label>
+                  <label>
+                    组织
+                    <input value={metadataForm.tissue} onChange={(event) => updateMetadataField("tissue", event.target.value)} />
+                  </label>
+                  <label className="wide-field">
+                    描述
+                    <textarea value={metadataForm.description} onChange={(event) => updateMetadataField("description", event.target.value)} rows={3} />
+                  </label>
+                </div>
+                <div className="dataset-action-row">
+                  <button className="secondary-button small-button" onClick={saveMetadata} disabled={Boolean(workspace.busy)}>
+                    <Save size={15} />保存
+                  </button>
+                  <button className="secondary-button small-button" onClick={() => workspace.handleActivateDataset(focusDataset.dataset_id)} disabled={Boolean(workspace.busy) || focusDataset.status === "offline"}>
+                    <Play size={15} />激活
+                  </button>
+                  {focusDataset.status === "offline" ? (
+                    <button className="secondary-button small-button" onClick={() => workspace.handleRestoreDataset(focusDataset.dataset_id)} disabled={Boolean(workspace.busy)}>
+                      <RotateCcw size={15} />恢复
+                    </button>
+                  ) : (
+                    <button className="secondary-button small-button" onClick={() => workspace.handleOfflineDataset(focusDataset.dataset_id)} disabled={Boolean(workspace.busy)}>
+                      <Power size={15} />下线
+                    </button>
+                  )}
+                  <button className="secondary-button small-button danger-button" onClick={deleteFocusedDataset} disabled={Boolean(workspace.busy)}>
+                    <Trash2 size={15} />删除
+                  </button>
+                </div>
+              </section>
+            ) : null}
           </>
         ) : (
           <EmptyState title="暂无数据" description="工作区尚未读取到可用数据集。" />

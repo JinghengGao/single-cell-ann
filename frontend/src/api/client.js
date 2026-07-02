@@ -74,6 +74,31 @@ export async function validateDatasets(datasetIds) {
   return data;
 }
 
+export async function updateDatasetMetadata(datasetId, updates) {
+  const { data } = await api.patch(`/datasets/${encodeURIComponent(datasetId)}/metadata`, updates);
+  return data;
+}
+
+export async function activateDataset(datasetId) {
+  const { data } = await api.post(`/datasets/${encodeURIComponent(datasetId)}/activate`, {});
+  return data;
+}
+
+export async function offlineDataset(datasetId) {
+  const { data } = await api.post(`/datasets/${encodeURIComponent(datasetId)}/offline`, {});
+  return data;
+}
+
+export async function restoreDataset(datasetId) {
+  const { data } = await api.post(`/datasets/${encodeURIComponent(datasetId)}/restore`, {});
+  return data;
+}
+
+export async function deleteDataset(datasetId) {
+  const { data } = await api.delete(`/datasets/${encodeURIComponent(datasetId)}`);
+  return data;
+}
+
 export async function loadDataset({ datasetId, path } = {}) {
   const payload = {};
   if (datasetId) payload.dataset_id = datasetId;
@@ -110,6 +135,16 @@ export async function switchIndex(indexId) {
   return data;
 }
 
+export async function loadIndex(indexId) {
+  const { data } = await api.post("/index/load", { index_id: indexId });
+  return data;
+}
+
+export async function deleteIndex(indexId) {
+  const { data } = await api.delete(`/index/${encodeURIComponent(indexId)}`);
+  return data;
+}
+
 export async function getIndexStatus() {
   const { data } = await api.get("/index/status");
   return data;
@@ -137,6 +172,21 @@ export async function exactSearch({ cellId, topK, datasetId }) {
     top_k: topK,
     dataset_id: datasetId || undefined,
   });
+  return data;
+}
+
+export async function vectorSearch({ queryVector, topK, indexId, metadataFilters } = {}) {
+  const payload = {
+    query_vector: queryVector,
+    top_k: topK,
+    index_id: indexId || undefined,
+  };
+  if (metadataFilters) {
+    Object.entries(metadataFilters).forEach(([key, value]) => {
+      if (value) payload[key] = value;
+    });
+  }
+  const { data } = await api.post("/search/vector", payload);
   return data;
 }
 
@@ -209,7 +259,27 @@ export async function updateUserRole(username, role) {
   return data;
 }
 
+export async function updateUserStatus(username, status) {
+  const { data } = await api.put(`/admin/users/${encodeURIComponent(username)}/status`, { status });
+  return data;
+}
+
 export async function deleteUser(username) {
   const { data } = await api.delete(`/admin/users/${encodeURIComponent(username)}`);
+  return data;
+}
+
+export async function getQueryLogs(limit = 100) {
+  const { data } = await api.get("/admin/logs/query", { params: { limit } });
+  return data;
+}
+
+export async function getBenchmarkLogs(limit = 100) {
+  const { data } = await api.get("/admin/logs/benchmark", { params: { limit } });
+  return data;
+}
+
+export async function getSystemStatus() {
+  const { data } = await api.get("/admin/system/status");
   return data;
 }

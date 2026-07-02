@@ -2,9 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   analyzeSearchResult,
+  activateDataset,
   batchSearch,
   buildIndex,
   compareSearch,
+  deleteDataset,
+  deleteIndex,
   exactSearch,
   getCurrentDataset,
   getCurrentUser,
@@ -13,15 +16,20 @@ import {
   getVisualizationCells,
   getVisualizationOptions,
   listDatasets,
+  loadIndex,
   loadDataset,
   loginUser,
   logoutUser,
   registerUser,
+  restoreDataset,
   scanDatasets,
   searchCells,
   switchIndex,
+  offlineDataset,
+  updateDatasetMetadata,
   uploadDataset,
   validateDatasets,
+  vectorSearch,
 } from "../api/client";
 import { EMPTY_FILTERS, getErrorMessage, permissionFor } from "../constants";
 
@@ -86,6 +94,8 @@ export function useWorkspace() {
   });
   const [visualGeneQuery, setVisualGeneQuery] = useState("ALB");
   const [queryCellId, setQueryCellId] = useState("");
+  const [queryVectorText, setQueryVectorText] = useState("");
+  const [vectorMode, setVectorMode] = useState(false);
   const [queryDatasetId, setQueryDatasetId] = useState("");
   const [topK, setTopK] = useState(10);
   const [searchResult, setSearchResult] = useState(null);
@@ -440,6 +450,56 @@ export function useWorkspace() {
     });
   }
 
+  async function handleUpdateDatasetMetadata(datasetId, updates) {
+    return runAction("dataset-meta", async () => {
+      await updateDatasetMetadata(datasetId, updates);
+      await refreshDatasets();
+    });
+  }
+
+  async function handleActivateDataset(datasetId) {
+    return runAction("activate-dataset", async () => {
+      const activated = await activateDataset(datasetId);
+      setDatasetSummary(activated);
+      setSelectedDatasetIds([activated.dataset_id]);
+      setQueryDatasetId(activated.dataset_id);
+      setQueryCellId(activated.sample_cell_ids?.[0] || queryCellId);
+      setSearchResult(null);
+      clearLlmAnalysis();
+      await fetchVisualization([activated.dataset_id]);
+      await refreshDatasets();
+    });
+  }
+
+  async function handleOfflineDataset(datasetId) {
+    return runAction("offline-dataset", async () => {
+      await offlineDataset(datasetId);
+      const nextDatasets = await refreshDatasets();
+      const nextSelectedIds = selectedDatasetIds.filter((id) => id !== datasetId);
+      setSelectedDatasetIds(nextSelectedIds.length ? nextSelectedIds : resolveSelectedDatasets(nextDatasets, indexStatus, []));
+      setSearchResult(null);
+      clearLlmAnalysis();
+    });
+  }
+
+  async function handleRestoreDataset(datasetId) {
+    return runAction("restore-dataset", async () => {
+      await restoreDataset(datasetId);
+      await refreshDatasets();
+    });
+  }
+
+  async function handleDeleteDataset(datasetId) {
+    return runAction("delete-dataset", async () => {
+      await deleteDataset(datasetId);
+      const nextDatasets = await refreshDatasets();
+      const nextSelectedIds = selectedDatasetIds.filter((id) => id !== datasetId);
+      setSelectedDatasetIds(nextSelectedIds.length ? nextSelectedIds : resolveSelectedDatasets(nextDatasets, indexStatus, []));
+      setSearchResult(null);
+      clearLlmAnalysis();
+    });
+  }
+
   async function handleLoadSelectedDataset() {
     return runAction("load", async () => {
       const datasetId = selectedDatasetIds[0];
@@ -498,12 +558,57 @@ export function useWorkspace() {
     });
   }
 
+  async function handleLoadIndex(indexId) {
+    return runAction("load-index", async () => {
+      const data = await loadIndex(indexId);
+      setIndexStatus(data);
+      setSelectedIndexId(data.active_index_id || data.index_id || indexId);
+      setSelectedDatasetIds(data.dataset_ids || selectedDatasetIds);
+      setSearchResult(null);
+      clearLlmAnalysis();
+    });
+  }
+
+  async function handleDeleteIndex(indexId) {
+    return runAction("delete-index", async () => {
+      const data = await deleteIndex(indexId);
+      setIndexStatus(data);
+      setSelectedIndexId(data.active_index_id || data.index_id || "");
+      setSearchResult(null);
+      clearLlmAnalysis();
+    });
+  }
+
   async function handleSearch() {
     return runAction("search", async () => {
       clearLlmAnalysis();
       setCompareResult(null);
       const nextTopK = clampInteger(topK, TOP_K_MIN, TOP_K_MAX, 10);
       setTopK(nextTopK);
+
+      if (vectorMode) {
+        const queryVector = queryVectorText
+          .split(/[\s,，]+/)
+          .map((value) => value.trim())
+          .filter(Boolean)
+          .map(Number);
+        if (!queryVector.length || queryVector.some((value) => !Number.isFinite(value))) {
+          throw new Error("查询向量必须是一组数字");
+        }
+        const result = await vectorSearch({
+          queryVector,
+          topK: nextTopK,
+          indexId: selectedIndexId,
+          metadataFilters: Object.fromEntries(
+            Object.entries(searchFilters).filter(([, v]) => v && String(v).trim()),
+          ) || undefined,
+        });
+        setSearchResult(result);
+        const visualDatasetIds = result.index?.dataset_ids?.length ? result.index.dataset_ids : selectedDatasetIds;
+        setSelectedDatasetIds(visualDatasetIds);
+        await fetchVisualization(visualDatasetIds.length ? visualDatasetIds : selectedDatasetIds);
+        return;
+      }
 
       if (compareMode) {
         const result = await compareSearch({
@@ -581,8 +686,11 @@ export function useWorkspace() {
   }
 
   function handlePickVisualizationCell(point) {
-    setQueryDatasetId(point.dataset_id);
-    setQueryCellId(point.name);
+    const pickedCellId = point?.cell_id || point?.name;
+    if (!pickedCellId) return;
+    setVectorMode(false);
+    setQueryDatasetId(point.dataset_id || "");
+    setQueryCellId(pickedCellId);
   }
 
   function triggerDownload(filename, content, type) {
@@ -704,19 +812,26 @@ export function useWorkspace() {
     exportVisualizationCsv,
     handleApplyGeneColor,
     handleAnalyzeSearchResult,
+    handleActivateDataset,
     handleAuth,
     handleBatchSearch,
     handleBuildIndex,
     handleClearVisualFilters,
     handleLoadSelectedDataset,
+    handleDeleteDataset,
+    handleDeleteIndex,
+    handleLoadIndex,
     handleLogout,
+    handleOfflineDataset,
     handlePickVisualizationCell,
     handleRefreshStatus,
     handleRefreshVisualization,
     handleScanDatasets,
     handleSearch,
     handleSwitchIndex,
+    handleRestoreDataset,
     handleUploadDataset,
+    handleUpdateDatasetMetadata,
     handleValidateDatasets,
     health,
     hnswEfConstruction,
@@ -739,6 +854,7 @@ export function useWorkspace() {
     normalizeTopK: () => setTopK((current) => clampInteger(current, TOP_K_MIN, TOP_K_MAX, 10)),
     normalizeVisualLimit: () => setVisualLimit((current) => clampInteger(current, VISUAL_LIMIT_MIN, VISUAL_LIMIT_MAX, 5000)),
     queryCellId,
+    queryVectorText,
     queryDatasetId,
     role,
     searchFilters,
@@ -760,6 +876,7 @@ export function useWorkspace() {
     setNlist,
     setNprobe,
     setQueryCellId,
+    setQueryVectorText,
     setQueryDatasetId,
     setSearchFilters,
     setSelectedDatasetIds,
@@ -775,6 +892,7 @@ export function useWorkspace() {
     topKTypeStats,
     toggleDataset,
     uploadFile,
+    vectorMode,
     visOptions,
     visPoints,
     visualColorBy,
@@ -785,5 +903,6 @@ export function useWorkspace() {
     visualLoading,
     visualSampleStrategy,
     visualStats,
+    setVectorMode,
   };
 }

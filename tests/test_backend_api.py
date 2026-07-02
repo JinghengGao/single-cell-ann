@@ -197,6 +197,38 @@ def test_auth_register_login_me_and_logout():
         assert logout.get_json()["authenticated"] is False
 
 
+def test_public_registration_cannot_create_admin_after_bootstrap_and_admin_can_disable_user():
+    with runtime_tmpdir() as tmp_path:
+        app = create_app(make_test_config(tmp_path))
+        client = app.test_client()
+
+        admin_headers = auth_headers(client, "admin", "owner_admin")
+
+        normal = client.post(
+            "/api/auth/register",
+            json={"username": "plain_user", "password": "secret123", "role": "normal_user"},
+        )
+        assert normal.status_code == 201
+        assert normal.get_json()["user"]["role"] == "normal_user"
+
+        late_admin = client.post(
+            "/api/auth/register",
+            json={"username": "late_admin", "password": "secret123", "role": "admin"},
+        )
+        assert late_admin.status_code == 400
+
+        disabled = client.put(
+            "/api/admin/users/plain_user/status",
+            json={"status": "disabled"},
+            headers=admin_headers,
+        )
+        assert disabled.status_code == 200
+        assert disabled.get_json()["status"] == "disabled"
+
+        login = client.post("/api/auth/login", json={"username": "plain_user", "password": "secret123"})
+        assert login.status_code == 401
+
+
 def test_dataset_registry_scan_validate_and_list():
     with runtime_tmpdir() as tmp_path:
         app = create_app(make_test_config(tmp_path))
@@ -219,6 +251,40 @@ def test_dataset_registry_scan_validate_and_list():
         liver = next(item for item in datasets.get_json()["datasets"] if item["dataset_id"] == "liver")
         assert liver["status"] == "validated"
         assert "cell_type" in liver["metadata_fields"]
+
+
+def test_dataset_lifecycle_metadata_offline_restore_and_delete():
+    with runtime_tmpdir() as tmp_path:
+        app = create_app(make_test_config(tmp_path))
+        client = app.test_client()
+        headers = auth_headers(client, "admin")
+
+        client.post("/api/datasets/scan", headers=headers)
+
+        metadata = client.patch(
+            "/api/datasets/liver/metadata",
+            json={"name": "Liver demo", "species": "human", "tissue": "liver"},
+            headers=headers,
+        )
+        assert metadata.status_code == 200
+        assert metadata.get_json()["name"] == "Liver demo"
+        assert metadata.get_json()["species"] == "human"
+
+        offline = client.post("/api/datasets/liver/offline", headers=headers)
+        assert offline.status_code == 200
+        assert offline.get_json()["status"] == "offline"
+
+        blocked_load = client.post("/api/datasets/load", json={"dataset_id": "liver"}, headers=headers)
+        assert blocked_load.status_code == 400
+
+        restore = client.post("/api/datasets/liver/restore", headers=headers)
+        assert restore.status_code == 200
+        assert restore.get_json()["status"] == "registered"
+
+        deleted = client.delete("/api/datasets/liver", headers=headers)
+        assert deleted.status_code == 200
+        datasets = client.get("/api/datasets").get_json()["datasets"]
+        assert all(item["dataset_id"] != "liver" for item in datasets)
 
 
 def test_combined_and_separate_indexes_return_dataset_aware_results():
@@ -257,6 +323,31 @@ def test_combined_and_separate_indexes_return_dataset_aware_results():
         assert result["query_cell"]["dataset_id"] == "liver"
         assert all(hit["dataset_id"] == "liver" for hit in result["hits"])
 
+        from backend.services.data_service import data_service
+
+        query_vector = data_service.get_vector_by_cell_id(sample_cell_id, dataset_id="liver", registry_path=tmp_path / "registry.json")
+        vector_search = client.post(
+            "/api/search/vector",
+            json={"query_vector": query_vector.tolist(), "top_k": 3},
+            headers=normal_headers,
+        )
+        assert vector_search.status_code == 200
+        assert vector_search.get_json()["result_count"] == 3
+
+        compare = client.post(
+            "/api/search/compare",
+            json={"cell_id": sample_cell_id, "dataset_id": "liver", "top_k": 3},
+            headers=normal_headers,
+        )
+        assert compare.status_code == 200
+
+        query_logs = client.get("/api/admin/logs/query", headers=admin_headers)
+        assert query_logs.status_code == 200
+        assert query_logs.get_json()["count"] >= 1
+        benchmark_logs = client.get("/api/admin/logs/benchmark", headers=admin_headers)
+        assert benchmark_logs.status_code == 200
+        assert any(item["benchmark_type"] == "compare" for item in benchmark_logs.get_json()["logs"])
+
         separate = client.post(
             "/api/index/build",
             json={"dataset_ids": ["liver"], "mode": "separate", "nlist": 64, "nprobe": 8},
@@ -264,6 +355,35 @@ def test_combined_and_separate_indexes_return_dataset_aware_results():
         )
         assert separate.status_code == 200
         assert separate.get_json()["built_indexes"][0]["build_mode"] == "separate"
+
+
+def test_index_metadata_allows_load_and_delete_from_disk():
+    runtime = inspect_faiss_runtime()
+    if not runtime.available:
+        pytest.skip("FAISS is unavailable in this Python environment")
+
+    with runtime_tmpdir() as tmp_path:
+        app = create_app(make_test_config(tmp_path))
+        client = app.test_client()
+        headers = auth_headers(client, "admin")
+
+        client.post("/api/datasets/scan", headers=headers)
+        client.post("/api/datasets/load", json={"dataset_id": "liver"}, headers=headers)
+        built = client.post(
+            "/api/index/build",
+            json={"dataset_ids": ["liver"], "mode": "combined", "nlist": 32, "nprobe": 4},
+            headers=headers,
+        )
+        assert built.status_code == 200
+        index_id = built.get_json()["index_id"]
+
+        loaded = client.post("/api/index/load", json={"index_id": index_id}, headers=headers)
+        assert loaded.status_code == 200
+        assert loaded.get_json()["active_index_id"] == index_id
+
+        deleted = client.delete(f"/api/index/{index_id}", headers=headers)
+        assert deleted.status_code == 200
+        assert all(item["index_id"] != index_id for item in deleted.get_json()["indexes"])
 
 
 def test_llm_analysis_requires_login():

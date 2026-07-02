@@ -20,7 +20,7 @@ def register():
             current_app.config["USERS_PATH"],
             str(payload.get("username") or ""),
             str(payload.get("password") or ""),
-            str(payload.get("role") or "researcher"),
+            str(payload.get("role") or "normal_user"),
         )
         return jsonify(result), 201
     except ValueError as exc:

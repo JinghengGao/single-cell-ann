@@ -116,6 +116,90 @@ class SearchService:
     # ------------------------------------------------------------------
     # 精确检索 (暴力 L2)
     # ------------------------------------------------------------------
+    def search_by_vector(
+        self,
+        query_vector_values: list[float],
+        top_k: int,
+        log_dir: Path,
+        *,
+        registry_path: Path,
+        index_id: str | None = None,
+        metadata_filters: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        started = time.perf_counter()
+        request_log: dict[str, Any] = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "query_type": "ANN_VECTOR",
+            "query_object": f"vector:{len(query_vector_values)}d",
+            "dataset_id": None,
+            "index_id": index_id,
+            "top_k": top_k,
+            "metadata_filters": metadata_filters or {},
+            "status": "failed",
+        }
+
+        try:
+            if top_k <= 0:
+                raise ValueError("top_k must be positive")
+            active_index = index_service.snapshot
+            if not active_index.ready:
+                raise RuntimeError("Index has not been built")
+
+            import numpy as np
+
+            query_vector = np.asarray(query_vector_values, dtype="float32")
+            if query_vector.ndim != 1 or query_vector.shape[0] != active_index.dimension:
+                raise ValueError(f"query_vector dimension must be {active_index.dimension}")
+
+            fetch_k = max(top_k * 3, top_k + 50)
+            distances, indices, bundle = index_service.search(query_vector, fetch_k, index_id)
+            hits, scanned = self._collect_hits(
+                distances,
+                indices,
+                bundle,
+                None,
+                None,
+                top_k,
+                registry_path=registry_path,
+                metadata_filters=metadata_filters,
+            )
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            result = {
+                "query": {
+                    "query_type": "vector",
+                    "dimension": int(query_vector.shape[0]),
+                    "index_id": bundle.snapshot.index_id,
+                    "top_k": top_k,
+                    "metadata_filters": metadata_filters or {},
+                },
+                "query_cell": None,
+                "query_time_ms": round(elapsed_ms, 3),
+                "scanned_candidates": scanned,
+                "index": bundle.snapshot.summary(),
+                "result_count": len(hits),
+                "hits": hits,
+            }
+            request_log.update(
+                {
+                    "status": "success",
+                    "latency_ms": result["query_time_ms"],
+                    "result_count": len(hits),
+                    "scanned_candidates": scanned,
+                    "index_id": bundle.snapshot.index_id,
+                    "index_mode": bundle.snapshot.mode,
+                }
+            )
+            return result
+        except Exception as exc:
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            request_log.update({"latency_ms": round(elapsed_ms, 3), "result_count": 0, "error": str(exc)})
+            raise
+        finally:
+            self._write_query_log(log_dir, request_log)
+
+    # ------------------------------------------------------------------
+    # 精确检索 (暴力 L2)
+    # ------------------------------------------------------------------
     def exact_search_by_cell_id(
         self,
         cell_id: str,
@@ -235,8 +319,7 @@ class SearchService:
         ann_overlap_ranks = sorted(exact_rank_map[cid] for cid in overlap_ids)
 
         elapsed_ms = (time.perf_counter() - started) * 1000
-
-        return {
+        result = {
             "query": ann_result["query"],
             "query_cell": ann_result["query_cell"],
             "total_elapsed_ms": round(elapsed_ms, 3),
@@ -260,6 +343,21 @@ class SearchService:
                 "speedup": round(exact_result["query_time_ms"] / ann_result["query_time_ms"], 2) if ann_result["query_time_ms"] > 0 else 0,
             },
         }
+        self._write_benchmark_log(
+            log_dir,
+            {
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "benchmark_type": "compare",
+                "index_id": ann_result["query"].get("index_id"),
+                "dataset_id": ann_result["query"].get("dataset_id"),
+                "top_k": top_k,
+                "recall": result["evaluation"]["recall"],
+                "ann_latency_ms": ann_result["query_time_ms"],
+                "exact_latency_ms": exact_result["query_time_ms"],
+                "speedup": result["evaluation"]["speedup"],
+            },
+        )
+        return result
 
     # ------------------------------------------------------------------
     # 批量检索
@@ -298,7 +396,7 @@ class SearchService:
         p50_idx = max(0, int(len(sorted_lat) * 0.5) - 1)
         p99_idx = max(0, int(len(sorted_lat) * 0.99) - 1)
 
-        return {
+        result = {
             "batch_query_time_ms": round(elapsed_ms, 3),
             "total_queries": len(cell_ids),
             "successful": len(results),
@@ -313,6 +411,24 @@ class SearchService:
             "results": results,
             "errors": errors,
         }
+        self._write_benchmark_log(
+            log_dir,
+            {
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "benchmark_type": "batch",
+                "index_id": index_id,
+                "dataset_id": dataset_id,
+                "top_k": top_k,
+                "total_queries": len(cell_ids),
+                "successful": len(results),
+                "failed": len(errors),
+                "qps": result["qps"],
+                "latency_avg_ms": result["latency_avg_ms"],
+                "latency_p50_ms": result["latency_p50_ms"],
+                "latency_p99_ms": result["latency_p99_ms"],
+            },
+        )
+        return result
 
     # ------------------------------------------------------------------
     # 内部方法
@@ -323,7 +439,7 @@ class SearchService:
         indices,
         bundle,
         query_snapshot,
-        cell_id: str,
+        cell_id: str | None,
         top_k: int,
         *,
         registry_path: Path,
@@ -341,7 +457,7 @@ class SearchService:
                 dataset_id=cell_ref.dataset_id,
                 registry_path=registry_path,
             )
-            if meta["dataset_id"] == query_snapshot.dataset_id and meta["cell_id"] == cell_id:
+            if query_snapshot is not None and meta["dataset_id"] == query_snapshot.dataset_id and meta["cell_id"] == cell_id:
                 continue
             if not self._match_filters(meta, metadata_filters):
                 continue
@@ -380,6 +496,13 @@ class SearchService:
     def _write_query_log(log_dir: Path, record: dict[str, Any]) -> None:
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / "query_log.jsonl"
+        with log_path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    @staticmethod
+    def _write_benchmark_log(log_dir: Path, record: dict[str, Any]) -> None:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "benchmark_results.jsonl"
         with log_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(record, ensure_ascii=False) + "\n")
 

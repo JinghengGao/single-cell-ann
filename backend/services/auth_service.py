@@ -42,22 +42,26 @@ class AuthService:
     # 公开 API
     # ------------------------------------------------------------------
 
-    def register(self, users_path: Path, username: str, password: str, role: str = "researcher") -> dict[str, Any]:
+    def register(self, users_path: Path, username: str, password: str, role: str = "normal_user") -> dict[str, Any]:
         username = username.strip()
-        role = role.strip() or "researcher"
+        requested_role = role.strip() or "normal_user"
         self._validate_credentials(username, password)
-        if role not in ALLOWED_ROLES:
-            raise ValueError(f"unsupported role: {role}")
+        if requested_role not in ALLOWED_ROLES:
+            raise ValueError(f"unsupported role: {requested_role}")
 
         with self._lock:
             store = self._load_store(users_path)
             if username in store["users"]:
                 raise ValueError("username already exists")
+            role = requested_role
+            if requested_role == "admin" and store["users"]:
+                raise ValueError("admin role can only be assigned by an existing administrator")
 
             user = {
                 "username": username,
                 "password_hash": generate_password_hash(password),
                 "role": role,
+                "status": "active",
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
             store["users"][username] = user
@@ -83,6 +87,8 @@ class AuthService:
             if user is None or not check_password_hash(user["password_hash"], password):
                 self._record_login_failure(username)
                 raise ValueError("invalid username or password")
+            if user.get("status", "active") != "active":
+                raise ValueError("account is disabled")
 
             self._clear_login_failures(username)
             self._clean_expired_tokens()
@@ -138,6 +144,23 @@ class AuthService:
             if target_username not in store["users"]:
                 raise ValueError(f"user not found: {target_username}")
             store["users"][target_username]["role"] = new_role
+            self._save_store(users_path, store)
+            return self._public_user(store["users"][target_username])
+
+    def update_user_status(self, users_path: Path, target_username: str, new_status: str) -> dict[str, Any]:
+        target_username = target_username.strip()
+        new_status = new_status.strip()
+        if new_status not in {"active", "disabled"}:
+            raise ValueError(f"unsupported status: {new_status}")
+        with self._lock:
+            store = self._load_store(users_path)
+            if target_username not in store["users"]:
+                raise ValueError(f"user not found: {target_username}")
+            store["users"][target_username]["status"] = new_status
+            if new_status != "active":
+                stale_tokens = [t for t, (u, _) in self._tokens.items() if u == target_username]
+                for t in stale_tokens:
+                    self._tokens.pop(t, None)
             self._save_store(users_path, store)
             return self._public_user(store["users"][target_username])
 
@@ -197,7 +220,7 @@ class AuthService:
             username=user["username"],
             role=user["role"],
             created_at=user["created_at"],
-        ).summary()
+        ).summary() | {"status": user.get("status", "active")}
 
     def _clean_expired_tokens(self) -> None:
         now = time.monotonic()

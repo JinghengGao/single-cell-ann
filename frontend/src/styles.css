@@ -285,6 +285,11 @@ p {
   font-size: 12px;
 }
 
+.danger-button {
+  border-color: #e7b8b8;
+  color: var(--red);
+}
+
 .full-button {
   width: 100%;
 }
@@ -2708,6 +2713,135 @@ tbody tr:hover {
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.metadata-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.metadata-edit-grid label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.metadata-edit-grid input,
+.metadata-edit-grid textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  color: var(--ink-strong);
+  background: #ffffff;
+  font: inherit;
+}
+
+.metadata-edit-grid .wide-field {
+  grid-column: 1 / -1;
+}
+
+.dataset-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.index-load-box {
+  display: grid;
+  gap: 9px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.admin-monitor-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.admin-monitor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-monitor-header h3,
+.admin-monitor-grid h4 {
+  margin: 0;
+  color: var(--ink-strong);
+}
+
+.admin-monitor-header h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+}
+
+.admin-monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.compact-kv,
+.log-list {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0 0;
+}
+
+.compact-kv div,
+.log-list p {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+  font-size: 12px;
+}
+
+.compact-kv dt,
+.log-list small {
+  color: var(--muted);
+}
+
+.compact-kv dd {
+  grid-column: span 2;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-strong);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-list span {
+  overflow: hidden;
+  color: var(--ink-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-list b {
+  color: var(--teal-dark);
+  font-weight: 750;
+}
+
+@media (max-width: 960px) {
+  .admin-monitor-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Index management */

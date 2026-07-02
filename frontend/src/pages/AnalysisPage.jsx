@@ -101,7 +101,10 @@ export function AnalysisPage({ workspace, guestMode }) {
     [workspace.appliedVisualState.filters, workspace.searchResult],
   );
   const queryDisabled =
-    Boolean(workspace.busy) || !workspace.canSearch || !workspace.queryCellId || !workspace.activeIndex?.ready;
+    Boolean(workspace.busy) ||
+    !workspace.canSearch ||
+    !workspace.activeIndex?.ready ||
+    (workspace.vectorMode ? !workspace.queryVectorText.trim() : !workspace.queryCellId);
   const selectedDatasetText = useMemo(
     () => workspace.appliedVisualDatasets.map((dataset) => dataset.name).join(", ") || "未选择数据集",
     [workspace.appliedVisualDatasets],
@@ -275,9 +278,27 @@ export function AnalysisPage({ workspace, guestMode }) {
                 ))}
               </select>
             </Field>
-            <Field label="细胞 ID">
-              <input value={workspace.queryCellId} onChange={(event) => workspace.setQueryCellId(event.target.value)} placeholder="选择图中细胞或输入 ID" />
-            </Field>
+            <div className="search-mode-row">
+              <label className="toggle-label">
+                <input type="checkbox" checked={workspace.vectorMode} onChange={(event) => { workspace.setVectorMode(event.target.checked); workspace.setCompareMode(false); workspace.setExactMode(false); }} />
+                <span>查询向量输入</span>
+              </label>
+            </div>
+            {workspace.vectorMode ? (
+              <Field label={`查询向量${workspace.activeIndex?.dimension ? `（${workspace.activeIndex.dimension} 维）` : ""}`}>
+                <textarea
+                  className="batch-textarea"
+                  value={workspace.queryVectorText}
+                  onChange={(event) => workspace.setQueryVectorText(event.target.value)}
+                  placeholder="用逗号、空格或换行分隔数字"
+                  rows={5}
+                />
+              </Field>
+            ) : (
+              <Field label="细胞 ID">
+                <input value={workspace.queryCellId} onChange={(event) => workspace.setQueryCellId(event.target.value)} placeholder="选择图中细胞或输入 ID" />
+              </Field>
+            )}
             <Field label="Top-K">
               <input type="number" min="1" max="100" value={workspace.topK} onChange={(event) => workspace.setTopK(event.target.value)} onBlur={workspace.normalizeTopK} />
             </Field>
@@ -299,13 +320,13 @@ export function AnalysisPage({ workspace, guestMode }) {
 
             <div className="search-mode-row">
               <label className="toggle-label">
-                <input type="checkbox" checked={workspace.exactMode && !workspace.compareMode} onChange={(event) => { workspace.setExactMode(event.target.checked); if (event.target.checked) workspace.setCompareMode(false); }} />
+                <input type="checkbox" checked={workspace.exactMode && !workspace.compareMode} disabled={workspace.vectorMode} onChange={(event) => { workspace.setExactMode(event.target.checked); if (event.target.checked) workspace.setCompareMode(false); }} />
                 <span>精确检索（暴力 L2）</span>
               </label>
             </div>
             <div className="search-mode-row">
               <label className="toggle-label">
-                <input type="checkbox" checked={workspace.compareMode} onChange={(event) => { workspace.setCompareMode(event.target.checked); if (event.target.checked) workspace.setExactMode(false); }} />
+                <input type="checkbox" checked={workspace.compareMode} disabled={workspace.vectorMode} onChange={(event) => { workspace.setCompareMode(event.target.checked); if (event.target.checked) workspace.setExactMode(false); }} />
                 <span>ANN vs 精确 对比评测</span>
               </label>
             </div>

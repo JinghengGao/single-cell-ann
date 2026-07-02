@@ -82,6 +82,7 @@ export function UmapChart({
       return {
         value: isExpression ? [point.x, point.y, expression] : [point.x, point.y],
         name: point.cell_id,
+        cell_id: point.cell_id,
         dataset_id: point.dataset_id,
         dataset_name: point.dataset_name,
         cell_type: point.cell_type,
@@ -100,6 +101,7 @@ export function UmapChart({
     const hitData = visibleHits.map((hit) => ({
         value: hit.umap,
         name: hit.cell_id,
+        cell_id: hit.cell_id,
         dataset_id: hit.dataset_id,
         dataset_name: hit.dataset_name,
         cell_type: hit.cell_type,
@@ -113,6 +115,7 @@ export function UmapChart({
           {
             value: visibleQueryCell.umap,
             name: visibleQueryCell.cell_id,
+            cell_id: visibleQueryCell.cell_id,
             dataset_id: visibleQueryCell.dataset_id,
             dataset_name: visibleQueryCell.dataset_name,
             cell_type: visibleQueryCell.cell_type,

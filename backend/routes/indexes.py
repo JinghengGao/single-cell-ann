@@ -71,3 +71,29 @@ def switch_index():
         return jsonify(index_service.switch_index(index_id))
     except KeyError as exc:
         return jsonify({"error": "unknown_index", "message": str(exc)}), 404
+
+
+@index_bp.post("/load")
+@require_roles("researcher", "data_manager", "admin")
+def load_index():
+    payload = request.get_json(silent=True) or {}
+    index_id = str(payload.get("index_id") or "").strip()
+    if not index_id:
+        return jsonify({"error": "invalid_request", "message": "index_id is required"}), 400
+    try:
+        return jsonify(index_service.load_index(current_app.config["INDEX_DIR"], index_id))
+    except FileNotFoundError as exc:
+        return jsonify({"error": "index_not_found", "message": str(exc)}), 404
+    except RuntimeError as exc:
+        return jsonify({"error": "index_load_failed", "message": str(exc)}), 503
+    except ValueError as exc:
+        return jsonify({"error": "invalid_index", "message": str(exc)}), 400
+
+
+@index_bp.delete("/<index_id>")
+@require_roles("data_manager", "admin")
+def delete_index(index_id: str):
+    try:
+        return jsonify(index_service.delete_index(current_app.config["INDEX_DIR"], index_id))
+    except ValueError as exc:
+        return jsonify({"error": "invalid_index", "message": str(exc)}), 400

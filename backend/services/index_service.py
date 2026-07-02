@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 from dataclasses import dataclass, field
@@ -37,6 +38,7 @@ class IndexSnapshot:
     nlist: int = 0
     nprobe: int = 0
     index_path: str | None = None
+    metadata_path: str | None = None
     build_duration_ms: float | None = None
     error: str | None = None
 
@@ -60,6 +62,7 @@ class IndexSnapshot:
             "nlist": self.nlist,
             "nprobe": self.nprobe,
             "index_path": self.index_path,
+            "metadata_path": self.metadata_path,
             "build_duration_ms": self.build_duration_ms,
             "error": self.error,
         }
@@ -104,6 +107,54 @@ class IndexService:
             self._active_index_id = index_id
             self._snapshot = self._indexes[index_id].snapshot
             return self.status()
+
+    def load_index(self, index_dir: Path, index_id: str) -> dict[str, Any]:
+        with self._lock:
+            runtime = inspect_faiss_runtime()
+            if not runtime.available:
+                raise RuntimeError(runtime.error or "FAISS is not available")
+
+            import faiss  # type: ignore
+
+            safe_index_id = self._safe_index_id(index_id)
+            index_path = index_dir / f"{safe_index_id}.faiss"
+            metadata_path = index_dir / f"{safe_index_id}.meta.json"
+            if not index_path.exists() or not metadata_path.exists():
+                raise FileNotFoundError(f"index files not found for {safe_index_id}")
+
+            cpu_index = faiss.read_index(str(index_path))
+            with metadata_path.open("r", encoding="utf-8") as file:
+                metadata = json.load(file)
+            snapshot = IndexSnapshot(**metadata["snapshot"])
+            index_to_cell = [CellRef(**item) for item in metadata["index_to_cell"]]
+            bundle = IndexBundle(
+                snapshot=snapshot,
+                cpu_index=cpu_index,
+                search_index=cpu_index,
+                index_to_cell=index_to_cell,
+            )
+            self._indexes[safe_index_id] = bundle
+            self._active_index_id = safe_index_id
+            self._snapshot = snapshot
+            self._faiss = faiss
+            return self.status()
+
+    def delete_index(self, index_dir: Path, index_id: str) -> dict[str, Any]:
+        with self._lock:
+            safe_index_id = self._safe_index_id(index_id)
+            removed = self._indexes.pop(safe_index_id, None)
+            index_path = index_dir / f"{safe_index_id}.faiss"
+            metadata_path = index_dir / f"{safe_index_id}.meta.json"
+            for path in (index_path, metadata_path):
+                if path.exists():
+                    path.unlink()
+            if self._active_index_id == safe_index_id:
+                self._active_index_id = next(iter(self._indexes), None)
+                self._snapshot = self._indexes[self._active_index_id].snapshot if self._active_index_id else IndexSnapshot()
+            return {
+                "deleted": removed.snapshot.summary() if removed else {"index_id": safe_index_id},
+                **self.status(),
+            }
 
     def build_ivf_flat(
         self,
@@ -365,6 +416,7 @@ class IndexService:
 
         index_dir.mkdir(parents=True, exist_ok=True)
         index_path = index_dir / f"{index_id}.faiss"
+        metadata_path = index_dir / f"{index_id}.meta.json"
         faiss.write_index(cpu_index, str(index_path))
 
         duration_ms = (time.perf_counter() - start) * 1000
@@ -383,9 +435,11 @@ class IndexService:
             nlist=effective_nlist,
             nprobe=effective_nprobe,
             index_path=str(index_path.resolve()),
+            metadata_path=str(metadata_path.resolve()),
             build_duration_ms=round(duration_ms, 3),
             error=None,
         )
+        self._write_index_metadata(metadata_path, snapshot, index_to_cell)
         return IndexBundle(
             snapshot=snapshot,
             cpu_index=cpu_index,
@@ -437,6 +491,7 @@ class IndexService:
 
         index_dir.mkdir(parents=True, exist_ok=True)
         index_path = index_dir / f"{index_id}.faiss"
+        metadata_path = index_dir / f"{index_id}.meta.json"
         faiss.write_index(cpu_index, str(index_path))
 
         duration_ms = (time.perf_counter() - start) * 1000
@@ -454,9 +509,11 @@ class IndexService:
             nlist=0,
             nprobe=ef_search,
             index_path=str(index_path.resolve()),
+            metadata_path=str(metadata_path.resolve()),
             build_duration_ms=round(duration_ms, 3),
             error=None,
         )
+        self._write_index_metadata(metadata_path, snapshot, index_to_cell)
         return IndexBundle(
             snapshot=snapshot,
             cpu_index=cpu_index,
@@ -470,6 +527,15 @@ class IndexService:
         if target_index_id is None or target_index_id not in self._indexes:
             raise RuntimeError("Index has not been built")
         return self._indexes[target_index_id]
+
+    @staticmethod
+    def _write_index_metadata(metadata_path: Path, snapshot: IndexSnapshot, index_to_cell: list[CellRef]) -> None:
+        payload = {
+            "snapshot": snapshot.__dict__,
+            "index_to_cell": [cell_ref.summary() for cell_ref in index_to_cell],
+        }
+        with metadata_path.open("w", encoding="utf-8") as file:
+            json.dump(payload, file, ensure_ascii=False, indent=2)
 
     @staticmethod
     def _require_shared_dimension(snapshots: list[DatasetSnapshot]) -> int:

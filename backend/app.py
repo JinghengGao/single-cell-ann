@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 
 try:
     from flask_cors import CORS
@@ -23,6 +23,17 @@ def create_app(config: type[Config] = Config) -> Flask:
 
     if CORS is not None:
         CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
+
+    @app.after_request
+    def add_cors_fallback(response):
+        origin = request.headers.get("Origin")
+        if origin in app.config["CORS_ORIGINS"] and "Access-Control-Allow-Origin" not in response.headers:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Vary"] = "Origin"
+        if origin in app.config["CORS_ORIGINS"]:
+            response.headers.setdefault("Access-Control-Allow-Headers", "Authorization, Content-Type")
+            response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+        return response
 
     app.register_blueprint(health_bp, url_prefix="/api")
     app.register_blueprint(auth_bp, url_prefix="/api/auth")

@@ -76,6 +76,34 @@ def exact_search():
         return jsonify({"error": "search_unavailable", "message": str(exc)}), 503
 
 
+@search_bp.post("/search/vector")
+@require_roles("normal_user", "researcher", "data_manager", "admin")
+def vector_search():
+    payload = request.get_json(silent=True) or {}
+    query_vector = payload.get("query_vector")
+    if not isinstance(query_vector, list):
+        return jsonify({"error": "invalid_request", "message": "query_vector must be a list of numbers"}), 400
+    index_id = str(payload.get("index_id") or "").strip() or None
+    top_k = int(payload.get("top_k") or current_app.config["DEFAULT_TOP_K"])
+    top_k = min(top_k, current_app.config["MAX_TOP_K"])
+    metadata_filters = _parse_metadata_filters(payload)
+
+    try:
+        result = search_service.search_by_vector(
+            [float(value) for value in query_vector],
+            top_k,
+            current_app.config["LOG_DIR"],
+            registry_path=current_app.config["DATASET_REGISTRY_PATH"],
+            index_id=index_id,
+            metadata_filters=metadata_filters,
+        )
+        return jsonify(result)
+    except ValueError as exc:
+        return jsonify({"error": "invalid_request", "message": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"error": "search_unavailable", "message": str(exc)}), 503
+
+
 @search_bp.post("/search/compare")
 @require_roles("normal_user", "researcher", "data_manager", "admin")
 def compare_search():

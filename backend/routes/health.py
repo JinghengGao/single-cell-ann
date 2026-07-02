@@ -22,6 +22,12 @@ def health():
             "status": "ok",
             "data_path": display_data_path,
             "data_exists": data_path.exists(),
+            "llm": {
+                "provider": current_app.config.get("LLM_PROVIDER"),
+                "api_url": current_app.config.get("LLM_API_URL"),
+                "model": current_app.config.get("LLM_MODEL"),
+                "api_key_configured": bool(str(current_app.config.get("LLM_API_KEY") or "").strip()),
+            },
             "faiss": {
                 "available": runtime.available,
                 "mode": runtime.mode,

@@ -585,6 +585,17 @@ export function useWorkspace() {
     setQueryCellId(point.name);
   }
 
+  function triggerDownload(filename, content, type) {
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
   function exportVisualizationCsv() {
     const rows = [
       ["dataset_id", "dataset_name", "cell_id", "x", "y", "cell_type", "disease", "AgeGroup", "tissue", "color_value", "expression"],
@@ -603,14 +614,67 @@ export function useWorkspace() {
       ]),
     ];
     const csv = rows.map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "cellscope_umap_points.csv";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    triggerDownload("cellscope_umap_points.csv", csv, "text/csv;charset=utf-8");
+  }
+
+  function exportLlmAnalysis(format = "markdown") {
+    if (!llmAnalysis?.analysis) {
+      setLlmError("当前没有可导出的 AI 分析报告。");
+      return;
+    }
+
+    const queryCell = searchResult?.query_cell || {};
+    const query = searchResult?.query || {};
+    const timestamp = new Date().toISOString();
+    const safeCellId = (queryCell.cell_id || query.cell_id || "report").replace(/[^\w-]+/g, "_");
+    const safeTimestamp = timestamp.replace(/[:.]/g, "-");
+    const baseName = `ai-analysis-${safeCellId}-${safeTimestamp}`;
+    const metadata = {
+      generated_at: timestamp,
+      provider: llmAnalysis.provider || "local",
+      model: llmAnalysis.model || "",
+      attempts: llmAnalysis.attempts ?? 0,
+      latency_ms: llmAnalysis.latency_ms ?? null,
+      cached: Boolean(llmAnalysis.cached),
+      question: llmQuestion.trim() || "",
+      enable_thinking: llmEnableThinking,
+      query: {
+        cell_id: query.cell_id || queryCell.cell_id || "",
+        dataset_id: query.dataset_id || queryCell.dataset_id || "",
+        dataset_name: queryCell.dataset_name || "",
+        top_k: query.top_k || searchResult?.result_count || 0,
+      },
+      input_summary: llmAnalysis.input_summary || {},
+    };
+
+    if (format === "json") {
+      triggerDownload(
+        `${baseName}.json`,
+        `${JSON.stringify({ metadata, analysis: llmAnalysis.analysis, search_result: searchResult }, null, 2)}\n`,
+        "application/json;charset=utf-8",
+      );
+      return;
+    }
+
+    const markdown = [
+      "# AI Analysis Report",
+      "",
+      `- Generated: ${metadata.generated_at}`,
+      `- Provider: ${metadata.provider}`,
+      `- Model: ${metadata.model || "-"}`,
+      `- Query Cell: ${metadata.query.cell_id || "-"}`,
+      `- Dataset: ${metadata.query.dataset_name || metadata.query.dataset_id || "-"}`,
+      `- Top-K: ${metadata.query.top_k || "-"}`,
+      `- Thinking: ${metadata.enable_thinking ? "on" : "off"}`,
+      metadata.question ? `- User Focus: ${metadata.question}` : null,
+      "",
+      llmAnalysis.analysis.trim(),
+      "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    triggerDownload(`${baseName}.md`, markdown, "text/markdown;charset=utf-8");
   }
 
   return {
@@ -636,6 +700,7 @@ export function useWorkspace() {
     datasets,
     error,
     exactMode,
+    exportLlmAnalysis,
     exportVisualizationCsv,
     handleApplyGeneColor,
     handleAnalyzeSearchResult,

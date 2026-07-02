@@ -3,14 +3,30 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+def _load_env_file_fallback(env_path: Path, *, override: bool) -> None:
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        if not override and key in os.environ:
+            continue
+        os.environ[key] = value.strip()
+
+
 try:
     from dotenv import load_dotenv
 
     _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
     if _ENV_PATH.exists():
-        load_dotenv(_ENV_PATH)
+        load_dotenv(_ENV_PATH, override=True)
 except ImportError:  # pragma: no cover — python-dotenv 未安装时回退到系统环境变量
-    pass
+    _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+    if _ENV_PATH.exists():
+        _load_env_file_fallback(_ENV_PATH, override=True)
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -30,7 +46,7 @@ class Config:
 
     HOST = os.getenv("SCANN_HOST", "127.0.0.1")
     PORT = int(os.getenv("SCANN_PORT", "5000"))
-    DEBUG = os.getenv("SCANN_DEBUG", "true").lower() in {"1", "true", "yes"}
+    DEBUG = os.getenv("SCANN_DEBUG", "false").lower() in {"1", "true", "yes"}
     DEFAULT_CORS_ORIGINS = ",".join(
         [
             "http://127.0.0.1:5173",
@@ -55,8 +71,8 @@ class Config:
     LLM_API_URL = os.getenv("SCANN_LLM_API_URL", "")
     LLM_API_KEY = os.getenv("SCANN_LLM_API_KEY", "")
     LLM_MODEL = os.getenv("SCANN_LLM_MODEL", "")
-    LLM_TIMEOUT_SECONDS = int(os.getenv("SCANN_LLM_TIMEOUT_SECONDS", "90"))
-    LLM_MAX_TOKENS = int(os.getenv("SCANN_LLM_MAX_TOKENS", "600"))
+    LLM_TIMEOUT_SECONDS = int(os.getenv("SCANN_LLM_TIMEOUT_SECONDS", "240"))
+    LLM_MAX_TOKENS = int(os.getenv("SCANN_LLM_MAX_TOKENS", "2200"))
     LLM_TEMPERATURE = float(os.getenv("SCANN_LLM_TEMPERATURE", "0.2"))
     LLM_ENABLE_THINKING = os.getenv("SCANN_LLM_ENABLE_THINKING", "false").lower() in {"1", "true", "yes"}
     LLM_MAX_HITS_FOR_PROMPT = int(os.getenv("SCANN_LLM_MAX_HITS_FOR_PROMPT", "50"))

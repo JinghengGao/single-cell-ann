@@ -33,6 +33,15 @@ class BaseLlmProvider(ABC):
     def model(self, config: dict[str, Any]) -> str:
         return str(config.get("LLM_MODEL") or self.default_model).strip()
 
+    def prepare_messages(
+        self,
+        messages: list[dict[str, str]],
+        config: dict[str, Any],
+        *,
+        extra_options: dict[str, Any] | None = None,
+    ) -> list[dict[str, str]]:
+        return messages
+
     @abstractmethod
     def chat(
         self,
@@ -65,9 +74,10 @@ class ChatCompletionsProvider(BaseLlmProvider):
             raise LlmProviderError("LLM API key is not configured; set SCANN_LLM_API_KEY")
 
         model = self.model(config)
+        prepared_messages = self.prepare_messages(messages, config, extra_options=extra_options)
         payload: dict[str, Any] = {
             "model": model,
-            "messages": messages,
+            "messages": prepared_messages,
             "temperature": float(config.get("LLM_TEMPERATURE") or 0.2),
             "max_tokens": int(config.get("LLM_MAX_TOKENS") or 600),
         }
@@ -140,6 +150,30 @@ class LocalModelProvider(ChatCompletionsProvider):
     default_model = "qwen3:8b"
     default_api_url = "http://127.0.0.1:11434/v1/chat/completions"
     requires_api_key = False
+
+    def prepare_messages(
+        self,
+        messages: list[dict[str, str]],
+        config: dict[str, Any],
+        *,
+        extra_options: dict[str, Any] | None = None,
+    ) -> list[dict[str, str]]:
+        model = self.model(config).lower()
+        if "qwen3" not in model:
+            return messages
+
+        thinking_enabled = bool((extra_options or {}).get("enable_thinking"))
+        suffix = "/think" if thinking_enabled else "/no_think"
+        prepared = [dict(message) for message in messages]
+        for message in reversed(prepared):
+            if message.get("role") != "user":
+                continue
+            content = str(message.get("content") or "").rstrip()
+            if content.endswith("/think") or content.endswith("/no_think"):
+                return prepared
+            message["content"] = f"{content}\n\n{suffix}" if content else suffix
+            return prepared
+        return prepared
 
 
 PROVIDERS: dict[str, type[BaseLlmProvider]] = {

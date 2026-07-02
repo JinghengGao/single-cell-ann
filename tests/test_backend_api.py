@@ -396,6 +396,63 @@ def test_llm_analysis_requires_login():
         assert response.status_code == 401
 
 
+def test_rag_search_requires_login():
+    with runtime_tmpdir() as tmp_path:
+        app = create_app(make_test_config(tmp_path))
+        client = app.test_client()
+
+        response = client.post("/api/search/rag", json={"question": "检索肝细胞邻域"})
+
+        assert response.status_code == 401
+
+
+def test_rag_search_rejects_empty_question():
+    with runtime_tmpdir() as tmp_path:
+        app = create_app(make_test_config(tmp_path))
+        client = app.test_client()
+        headers = auth_headers(client, "normal_user", "normal_for_rag_invalid")
+
+        response = client.post("/api/search/rag", json={"question": ""}, headers=headers)
+
+        assert response.status_code == 400
+        assert response.get_json()["error"] == "invalid_request"
+
+
+def test_rag_search_route_returns_retrieval_plan(monkeypatch):
+    with runtime_tmpdir() as tmp_path:
+        app = create_app(make_test_config(tmp_path))
+        client = app.test_client()
+        headers = auth_headers(client, "normal_user", "normal_for_rag_route")
+
+        def fake_answer_question(question, config, *, top_k, dataset_ids=None, index_id=None, enable_thinking=None):
+            return {
+                "question": question,
+                "retrieval_plan": {
+                    "strategy": "metadata_centroid",
+                    "dataset_ids": dataset_ids,
+                    "metadata_filters": {"cell_type": "hepatocyte"},
+                    "top_k": top_k,
+                },
+                "search_result": sample_search_result(),
+                "answer": "## RAG 回答\n\n已基于检索证据回答。",
+                "provider": "local",
+                "model": "qwen3:8b",
+            }
+
+        monkeypatch.setattr("backend.routes.search.rag_service.answer_question", fake_answer_question)
+        response = client.post(
+            "/api/search/rag",
+            json={"question": "找肝细胞并解释邻域", "dataset_ids": ["liver"], "top_k": 5},
+            headers=headers,
+        )
+
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload["retrieval_plan"]["strategy"] == "metadata_centroid"
+        assert payload["retrieval_plan"]["metadata_filters"] == {"cell_type": "hepatocyte"}
+        assert payload["answer"].startswith("## RAG 回答")
+
+
 def test_llm_analysis_rejects_missing_or_empty_results():
     with runtime_tmpdir() as tmp_path:
         app = create_app(make_test_config(tmp_path))

@@ -20,6 +20,7 @@ import {
   loadDataset,
   loginUser,
   logoutUser,
+  ragSearch,
   registerUser,
   restoreDataset,
   scanDatasets,
@@ -107,6 +108,8 @@ export function useWorkspace() {
   const [batchResult, setBatchResult] = useState(null);
   const [llmAnalysis, setLlmAnalysis] = useState(null);
   const [llmQuestion, setLlmQuestion] = useState("");
+  const [ragQuestion, setRagQuestion] = useState("");
+  const [ragResult, setRagResult] = useState(null);
   const [llmEnableThinking, setLlmEnableThinking] = useState(false);
   const [llmBusy, setLlmBusy] = useState(false);
   const [llmError, setLlmError] = useState("");
@@ -668,6 +671,47 @@ export function useWorkspace() {
     }
   }
 
+  async function handleRagSearch() {
+    const question = ragQuestion.trim();
+    if (!question) {
+      setLlmError("请输入自然语言检索问题。");
+      return null;
+    }
+    setLlmBusy(true);
+    setLlmError("");
+    try {
+      const result = await ragSearch({
+        question,
+        topK: clampInteger(topK, TOP_K_MIN, TOP_K_MAX, 10),
+        datasetIds: selectedDatasetIds,
+        indexId: selectedIndexId,
+        enableThinking: llmEnableThinking,
+      });
+      setRagResult(result);
+      setLlmAnalysis({
+        analysis: result.answer,
+        provider: result.provider,
+        model: result.model,
+        usage: result.usage,
+        latency_ms: result.latency_ms,
+        cached: result.cached,
+        attempts: result.attempts,
+      });
+      setSearchResult(result.search_result);
+      const visualDatasetIds = result.search_result?.index?.dataset_ids?.length
+        ? result.search_result.index.dataset_ids
+        : result.retrieval_plan?.dataset_ids || selectedDatasetIds;
+      setSelectedDatasetIds(visualDatasetIds);
+      await fetchVisualization(visualDatasetIds.length ? visualDatasetIds : selectedDatasetIds);
+      return result;
+    } catch (analysisError) {
+      setLlmError(getErrorMessage(analysisError));
+      return null;
+    } finally {
+      setLlmBusy(false);
+    }
+  }
+
   async function handleApplyGeneColor() {
     const geneQuery = visualGeneQuery.trim();
     if (!geneQuery) {
@@ -826,6 +870,7 @@ export function useWorkspace() {
     handlePickVisualizationCell,
     handleRefreshStatus,
     handleRefreshVisualization,
+    handleRagSearch,
     handleScanDatasets,
     handleSearch,
     handleSwitchIndex,
@@ -848,6 +893,8 @@ export function useWorkspace() {
     llmEnableThinking,
     llmError,
     llmQuestion,
+    ragQuestion,
+    ragResult,
     nlist,
     nprobe,
     normalizeIndexParameters,
@@ -873,6 +920,7 @@ export function useWorkspace() {
     setIndexType,
     setLlmEnableThinking,
     setLlmQuestion,
+    setRagQuestion,
     setNlist,
     setNprobe,
     setQueryCellId,

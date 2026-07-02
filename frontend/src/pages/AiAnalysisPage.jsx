@@ -88,6 +88,7 @@ export function AiAnalysisPage({ workspace, guestMode }) {
   const totalHits = workspace.searchResult?.hits?.length || 0;
   const dominantType = workspace.topKTypeStats?.[0];
   const analysisDisabled = !hasHits || Boolean(workspace.busy) || workspace.llmBusy || !workspace.canSearch;
+  const ragDisabled = !workspace.canSearch || Boolean(workspace.busy) || workspace.llmBusy || !workspace.activeIndex?.ready || !workspace.ragQuestion.trim();
   const reportTitle = queryCell?.cell_id ? `查询细胞 ${queryCell.cell_id}` : "等待检索结果";
   const usage = workspace.llmAnalysis?.usage;
   const tokenDetail = usage?.total_tokens ? `Token ${usage.total_tokens}` : "尚未生成报告";
@@ -97,6 +98,12 @@ export function AiAnalysisPage({ workspace, guestMode }) {
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     if (!analysisDisabled) workspace.handleAnalyzeSearchResult();
+  }
+
+  function submitRagFromKeyboard(event) {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    if (!ragDisabled) workspace.handleRagSearch();
   }
 
   return (
@@ -135,13 +142,44 @@ export function AiAnalysisPage({ workspace, guestMode }) {
             <div className="ai-panel-heading">
               <div>
                 <p>Prompt Control</p>
-                <h3><Sparkles size={16} />分析任务</h3>
+                <h3><Sparkles size={16} />自然语言 RAG 检索</h3>
               </div>
               <StatusBadge value={workspace.llmEnableThinking ? "Thinking" : "Fast"} tone={workspace.llmEnableThinking ? "warm" : "good"} dot={false} />
             </div>
             {!workspace.canSearch ? (
               <p className="ai-panel-note">{guestMode ? "当前为只读浏览模式，登录后可生成 AI 分析。" : "当前角色没有生成 AI 分析的权限。"}</p>
             ) : null}
+            <Field label="自然语言问题">
+              <textarea
+                className="ai-prompt-input"
+                value={workspace.ragQuestion}
+                onChange={(event) => workspace.setRagQuestion(event.target.value)}
+                onKeyDown={submitRagFromKeyboard}
+                placeholder="例如：帮我检索肝细胞中和健康样本相似的 Top-K 细胞，并解释这些邻域有什么特点"
+                disabled={workspace.llmBusy}
+              />
+            </Field>
+            <button className="primary-button full-button" onClick={workspace.handleRagSearch} disabled={ragDisabled}>
+              {workspace.llmBusy ? <LoaderCircle size={17} className="spin" /> : <Sparkles size={17} />}
+              执行 RAG 检索并回答
+            </button>
+            {workspace.ragResult?.retrieval_plan ? (
+              <div className="rag-plan-box">
+                <span>检索策略：{workspace.ragResult.retrieval_plan.strategy}</span>
+                <span>数据集：{(workspace.ragResult.retrieval_plan.dataset_ids || []).join(", ") || "-"}</span>
+                <span>条件：{Object.entries(workspace.ragResult.retrieval_plan.metadata_filters || {}).map(([key, value]) => `${key}=${value}`).join(", ") || "无"}</span>
+                <span>代表细胞：{workspace.ragResult.retrieval_plan.cell_id || workspace.ragResult.retrieval_plan.representative_cell?.cell_id || "-"}</span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="ai-panel ai-control-panel">
+            <div className="ai-panel-heading">
+              <div>
+                <p>Result Explanation</p>
+                <h3><Sparkles size={16} />已有检索结果分析</h3>
+              </div>
+            </div>
             <Field label="分析重点">
               <textarea
                 className="ai-prompt-input"

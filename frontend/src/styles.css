@@ -1917,6 +1917,22 @@ p {
   line-height: 1.45;
 }
 
+.rag-plan-box {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #cfe0dd;
+  border-radius: var(--radius-sm);
+  padding: 9px 10px;
+  color: var(--ink);
+  background: #f3faf8;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.rag-plan-box span {
+  overflow-wrap: anywhere;
+}
+
 .ai-type-bars {
   display: grid;
   gap: 10px;

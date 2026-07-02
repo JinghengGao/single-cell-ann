@@ -4,6 +4,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from backend.routes.permissions import require_roles
 from backend.services.llm_analysis_service import LlmAnalysisError, llm_analysis_service
+from backend.services.rag_service import RagQueryError, rag_service
 from backend.services.search_service import search_service
 
 
@@ -180,6 +181,43 @@ def analyze_search():
         return jsonify({"error": "invalid_request", "message": str(exc)}), 400
     except LlmAnalysisError as exc:
         return jsonify({"error": "llm_unavailable", "message": str(exc)}), 503
+
+
+@search_bp.post("/search/rag")
+@require_roles("normal_user", "researcher", "data_manager", "admin")
+def rag_search():
+    payload = request.get_json(silent=True) or {}
+    question = str(payload.get("question") or "").strip()
+    dataset_ids = payload.get("dataset_ids") or []
+    if not isinstance(dataset_ids, list):
+        return jsonify({"error": "invalid_request", "message": "dataset_ids must be a list"}), 400
+    index_id = str(payload.get("index_id") or "").strip() or None
+    top_k = int(payload.get("top_k") or current_app.config["DEFAULT_TOP_K"])
+    top_k = min(top_k, current_app.config["MAX_TOP_K"])
+    enable_thinking = payload.get("enable_thinking")
+    if enable_thinking is not None and not isinstance(enable_thinking, bool):
+        return jsonify({"error": "invalid_request", "message": "enable_thinking must be a boolean"}), 400
+
+    try:
+        result = rag_service.answer_question(
+            question,
+            current_app.config,
+            top_k=top_k,
+            dataset_ids=[str(item) for item in dataset_ids],
+            index_id=index_id,
+            enable_thinking=enable_thinking,
+        )
+        return jsonify(result)
+    except RagQueryError as exc:
+        return jsonify({"error": "invalid_request", "message": str(exc)}), 400
+    except ValueError as exc:
+        return jsonify({"error": "invalid_request", "message": str(exc)}), 400
+    except KeyError as exc:
+        return jsonify({"error": "unknown_cell", "message": str(exc)}), 404
+    except LlmAnalysisError as exc:
+        return jsonify({"error": "llm_unavailable", "message": str(exc)}), 503
+    except RuntimeError as exc:
+        return jsonify({"error": "search_unavailable", "message": str(exc)}), 503
 
 
 # -- 访客 Demo 检索（无需登录） --

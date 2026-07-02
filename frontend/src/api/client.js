@@ -226,6 +226,17 @@ export async function analyzeSearchResult({ searchResult, question, enableThinki
   return data;
 }
 
+export async function ragSearch({ question, topK, datasetIds, indexId, enableThinking }) {
+  const { data } = await api.post("/search/rag", {
+    question,
+    top_k: topK,
+    dataset_ids: datasetIds || [],
+    index_id: indexId || undefined,
+    enable_thinking: Boolean(enableThinking),
+  });
+  return data;
+}
+
 export async function getVisualizationCells(limit = 5000, datasetIds = [], options = {}) {
   const params = {
     limit,

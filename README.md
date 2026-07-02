@@ -5,7 +5,7 @@
 ## 当前状态
 
 - 基础功能：已覆盖结项要求中的可运行系统、条件检索、实验评估、可视化展示、数据集管理和动态索引管理。
-- 加分功能：支持 HNSW/IVF_FLAT 参数化索引、多数据集联合索引、向量直接检索、批量评测、RAG 风格 Top-K 结果 AI 分析、管理员监控。
+- 加分功能：支持 HNSW/IVF_FLAT 参数化索引、多数据集联合索引、向量直接检索、批量评测、自然语言 RAG 检索、Top-K 结果 AI 分析和管理员监控。
 - 测试状态：`python -m pytest tests\test_backend_api.py` 当前为 `21 passed, 2 skipped`；`npm run build` 通过。
 - 已知风险：当前本机 conda 环境中 FAISS IVF `train()` 在测试进程里会崩溃，建议演示前使用已有索引、HNSW 或修复/替换 FAISS 包。默认 Python 环境没有 FAISS 时，相关测试会被跳过。
 
@@ -23,7 +23,7 @@
 - 条件检索：按 `cell_id` 或直接输入向量检索，支持 Top-K、数据集限定和 `cell_type`、`disease`、`AgeGroup`、`tissue` 条件过滤。
 - 实验评估：返回查询耗时，支持 ANN vs Exact Recall/延迟/speedup，对批量查询统计 QPS、Avg、P50、P99，并写入评测日志。
 - 可视化：UMAP 散点图、元数据着色、条件过滤、Top-K 高亮和连线、点击点回填查询细胞、基因表达叠加、CSV 导出。
-- AI 分析：把 Top-K 检索结果和自然语言问题发送给配置的 LLM Provider，生成邻域解释报告，支持重试、缓存和日志。
+- RAG 与 AI 分析：自然语言问题可自动抽取 Cell ID 或元数据条件，检索单细胞数据库后生成回答；也可对已有 Top-K 结果做解释，支持重试、缓存和日志。
 - 管理监控：管理员可查看系统状态、FAISS 状态、数据集/索引状态、查询日志和评测日志。
 
 ## 权限模型
@@ -126,7 +126,7 @@ data/uploads/
 6. 添加 `cell_type` 等条件过滤，展示条件 Top-K 检索。
 7. 开启 ANN vs Exact 对比，展示 Recall、延迟和 speedup。
 8. 执行批量查询，展示 QPS、P50、P99。
-9. 切换到“AI 辅助分析”，输入自然语言问题生成解释报告。
+9. 切换到“AI 辅助分析”，直接输入自然语言问题执行 RAG 检索并生成回答，也可对已有 Top-K 结果生成解释报告。
 10. 在“系统管理”查看查询日志、评测日志和系统状态。
 
 ## API 摘要
@@ -169,6 +169,7 @@ data/uploads/
 - `POST /api/search/compare`
 - `POST /api/search/batch`
 - `POST /api/search/analyze`
+- `POST /api/search/rag`
 - `GET /api/demo/search`
 
 可视化：

@@ -91,6 +91,14 @@ class IndexService:
             return self._indexes[self._active_index_id].snapshot
         return self._snapshot
 
+    def snapshot_for(self, index_id: str | None = None) -> IndexSnapshot:
+        with self._lock:
+            if index_id:
+                if index_id not in self._indexes:
+                    raise KeyError(f"Unknown index_id: {index_id}")
+                return self._indexes[index_id].snapshot
+            return self.snapshot
+
     def status(self) -> dict[str, Any]:
         with self._lock:
             active = self.snapshot.summary()

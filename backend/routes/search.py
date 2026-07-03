@@ -99,6 +99,8 @@ def vector_search():
             metadata_filters=metadata_filters,
         )
         return jsonify(result)
+    except KeyError as exc:
+        return jsonify({"error": "unknown_index", "message": str(exc)}), 404
     except ValueError as exc:
         return jsonify({"error": "invalid_request", "message": str(exc)}), 400
     except RuntimeError as exc:

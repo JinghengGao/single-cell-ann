@@ -7,6 +7,8 @@ export const api = axios.create({
   timeout: 120000,
 });
 
+const LLM_REQUEST_TIMEOUT_MS = 300000;
+
 export function getStoredToken() {
   return window.localStorage.getItem(TOKEN_KEY);
 }
@@ -222,7 +224,7 @@ export async function analyzeSearchResult({ searchResult, question, enableThinki
     search_result: searchResult,
     question: question || undefined,
     enable_thinking: Boolean(enableThinking),
-  });
+  }, { timeout: LLM_REQUEST_TIMEOUT_MS });
   return data;
 }
 
@@ -233,7 +235,7 @@ export async function ragSearch({ question, topK, datasetIds, indexId, enableThi
     dataset_ids: datasetIds || [],
     index_id: indexId || undefined,
     enable_thinking: Boolean(enableThinking),
-  });
+  }, { timeout: LLM_REQUEST_TIMEOUT_MS });
   return data;
 }
 

@@ -173,41 +173,38 @@ def build_prompt_blueprint(context: dict[str, Any], user_question: str | None = 
 
 
 def build_messages(context: dict[str, Any], user_question: str | None = None) -> list[dict[str, str]]:
-    prompt_blueprint = build_prompt_blueprint(context, user_question)
     system_prompt = (
         "你是单细胞向量检索结果辅助分析助手。你只能基于用户提供的 query cell、Top-K hits、"
         "距离/相似度和元数据字段进行解释；不要虚构基因表达、差异表达、文献事实、疾病因果或临床诊断。"
-        "请用中文回答，结构清晰，适合科研人员快速阅读。输出必须是 Markdown，使用固定二级标题、短列表和加粗关键词，"
-        "每个小节控制在 2-3 句话以内，避免冗长推理过程。你的输出会被前端转成可视化关系图，"
-        "所以请显式写出“查询细胞 -> 邻域组成 -> 距离证据 -> 生物学提示 -> 下一步验证”的逻辑链。"
+        "请用中文 Markdown 回答，控制在 400 字以内，使用短句和短列表，不要输出思考过程。"
     )
     requested_focus = user_question.strip() if user_question else "无额外问题，请按通用检索结果进行解读。"
+    compact_context = {
+        "query": context["query"],
+        "query_cell": context["query_cell"],
+        "result_count": context["result_count"],
+        "distance_stats": context["distance_stats"],
+        "cell_type_counts": context["cell_type_counts"],
+        "disease_counts": context["disease_counts"],
+        "tissue_counts": context["tissue_counts"],
+        "AgeGroup_counts": context["AgeGroup_counts"],
+        "hits": context["hits"],
+    }
     user_payload = {
         "analysis_task": "解释单细胞 ANN Top-K 相似细胞检索结果",
         "required_sections": [
-            "## 检索邻域概览",
-            "## 主要相似细胞组成",
-            "## 距离与相似度解读",
+            "## 邻域概览",
+            "## 组成与距离",
             "## 关键关系链",
-            "## 可能的生物学提示",
-            "## 局限性与下一步建议",
-        ],
-        "style_requirements": [
-            "用 Markdown 二级标题组织内容",
-            "关键字段和值可以使用加粗",
-            "需要列点时使用短列表",
-            "“关键关系链”必须用 3-5 条短列表表达，每条使用 A -> B -> C 的形式",
-            "只基于输入元数据和距离统计组织逻辑，不要引入输入外证据",
-            "不要输出模型思考过程或内部推理链",
+            "## 局限与建议",
         ],
         "user_question": requested_focus,
-        "system_prompt_blueprint": prompt_blueprint,
-        "context": context,
-        "final_reminder": "结尾提醒：这是基于向量邻域和元数据的辅助解读，不是实验结论。",
+        "context": compact_context,
+        "rules": "只基于输入元数据和距离统计；关键关系链用 2-4 条 A -> B -> C 短列表；结尾提醒这不是实验结论。",
     }
     return [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, indent=2)},
+        {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, separators=(",", ":"))},
     ]
 
 

@@ -86,6 +86,12 @@ export function formatBytes(value) {
 export function getErrorMessage(error) {
   const serverMessage = error?.response?.data?.message;
   const serverCode = error?.response?.data?.error;
+  if (error?.code === "ECONNABORTED" || /timeout/i.test(error?.message || "")) {
+    return "本地大模型响应超时，请确认 Ollama 正在运行，或稍后重试。";
+  }
+  if (/LLM provider request timed out/i.test(serverMessage || "")) {
+    return "本地大模型生成超时，请确认 Ollama 没有被其它任务占用，或关闭思考模式后重试。";
+  }
   if (serverMessage === "username already exists") return "该账户已存在，请直接登录或更换用户名。";
   if (serverMessage === "username must be at least 3 characters") return "用户名至少需要 3 个字符。";
   if (serverMessage === "password must be at least 6 characters") return "密码至少需要 6 个字符。";

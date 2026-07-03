@@ -151,6 +151,70 @@ class LocalModelProvider(ChatCompletionsProvider):
     default_api_url = "http://127.0.0.1:11434/v1/chat/completions"
     requires_api_key = False
 
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        config: dict[str, Any],
+        *,
+        extra_options: dict[str, Any] | None = None,
+    ) -> LlmResponse:
+        api_url = self._native_chat_url(config)
+        model = self.model(config)
+        thinking_enabled = bool((extra_options or {}).get("enable_thinking"))
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "think": thinking_enabled,
+            "options": {
+                "temperature": float(config.get("LLM_TEMPERATURE") or 0.2),
+                "num_predict": int(config.get("LLM_MAX_TOKENS") or 512),
+            },
+        }
+        try:
+            response = requests.post(
+                api_url,
+                headers={"Content-Type": "application/json"},
+                json=payload,
+                timeout=int(config.get("LLM_TIMEOUT_SECONDS") or 60),
+            )
+        except requests.Timeout as exc:
+            raise LlmProviderError("LLM provider request timed out", retryable=True) from exc
+        except requests.RequestException as exc:
+            raise LlmProviderError(f"LLM provider request failed: {exc}", retryable=True) from exc
+
+        if response.status_code >= 400:
+            message = provider_error_message(response)
+            retryable = response.status_code in {408, 409, 425, 429} or response.status_code >= 500
+            raise LlmProviderError(
+                f"LLM provider returned HTTP {response.status_code}: {message}",
+                retryable=retryable,
+            )
+
+        try:
+            data = response.json()
+            message = data["message"]
+            analysis = message["content"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise LlmProviderError("LLM provider returned an invalid response format") from exc
+
+        if not str(analysis).strip():
+            raise LlmProviderError("LLM provider returned an empty analysis")
+
+        usage = {
+            "prompt_tokens": data.get("prompt_eval_count"),
+            "completion_tokens": data.get("eval_count"),
+        }
+        usage = {key: value for key, value in usage.items() if isinstance(value, int)}
+        if usage:
+            usage["total_tokens"] = sum(usage.values())
+        return LlmResponse(
+            content=str(analysis).strip(),
+            model=str(data.get("model") or model),
+            usage=usage,
+            raw=data if isinstance(data, dict) else {},
+        )
+
     def prepare_messages(
         self,
         messages: list[dict[str, str]],
@@ -174,6 +238,13 @@ class LocalModelProvider(ChatCompletionsProvider):
             message["content"] = f"{content}\n\n{suffix}" if content else suffix
             return prepared
         return prepared
+
+    def _native_chat_url(self, config: dict[str, Any]) -> str:
+        configured = self.api_url(config) or self.default_api_url
+        for suffix in ("/v1/chat/completions", "/api/chat"):
+            if configured.endswith(suffix):
+                return configured[: -len(suffix)] + "/api/chat"
+        return configured.rstrip("/") + "/api/chat"
 
 
 PROVIDERS: dict[str, type[BaseLlmProvider]] = {

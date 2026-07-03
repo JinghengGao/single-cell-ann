@@ -214,6 +214,17 @@ export function useWorkspace() {
     return nextDatasets[0] ? [nextDatasets[0].dataset_id] : [];
   }
 
+  function syncQueryToDatasetIds(datasetIds, fallbackCellId = "") {
+    const dataset = datasets.find((item) => datasetIds.includes(item.dataset_id));
+    if (dataset) {
+      setQueryDatasetId(dataset.dataset_id);
+      setQueryCellId(dataset.sample_cell_ids?.[0] || fallbackCellId || "");
+      return;
+    }
+    setQueryDatasetId("");
+    setQueryCellId("");
+  }
+
   async function fetchVisualization(datasetIds = selectedDatasetIds, overrides = {}) {
     const requestId = ++visualRequestId.current;
     const nextDatasetIds = [...new Set(datasetIds.filter(Boolean))];
@@ -544,7 +555,10 @@ export function useWorkspace() {
       setSelectedIndexId(data.active_index_id || data.index_id || "");
       setSearchResult(null);
       clearLlmAnalysis();
-      await fetchVisualization(data.dataset_ids?.length ? data.dataset_ids : selectedDatasetIds);
+      const nextDatasetIds = data.dataset_ids?.length ? data.dataset_ids : selectedDatasetIds;
+      setSelectedDatasetIds(nextDatasetIds);
+      syncQueryToDatasetIds(nextDatasetIds, queryCellId);
+      await fetchVisualization(nextDatasetIds);
     });
   }
 
@@ -555,6 +569,7 @@ export function useWorkspace() {
       setSelectedIndexId(data.active_index_id || data.index_id || indexId);
       const nextDatasetIds = data.dataset_ids || [];
       setSelectedDatasetIds(nextDatasetIds);
+      syncQueryToDatasetIds(nextDatasetIds, queryCellId);
       setSearchResult(null);
       clearLlmAnalysis();
       await fetchVisualization(nextDatasetIds);
@@ -566,7 +581,9 @@ export function useWorkspace() {
       const data = await loadIndex(indexId);
       setIndexStatus(data);
       setSelectedIndexId(data.active_index_id || data.index_id || indexId);
-      setSelectedDatasetIds(data.dataset_ids || selectedDatasetIds);
+      const nextDatasetIds = data.dataset_ids || selectedDatasetIds;
+      setSelectedDatasetIds(nextDatasetIds);
+      syncQueryToDatasetIds(nextDatasetIds, queryCellId);
       setSearchResult(null);
       clearLlmAnalysis();
     });

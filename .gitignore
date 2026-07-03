@@ -74,3 +74,6 @@ ehthumbs.db
 *.zip
 .claude/*
 .codex/*
+
+report/
+docs/视频录制指南.md

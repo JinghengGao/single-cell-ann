@@ -46,13 +46,11 @@ class SearchService:
             if top_k <= 0:
                 raise ValueError("top_k must be positive")
 
-            active_index = index_service.snapshot
-            if not active_index.ready:
-                raise RuntimeError("Index has not been built")
+            target_index = self._resolve_search_index(index_id, dataset_id)
 
             query_snapshot, query_row_index = data_service.resolve_cell(
                 cell_id,
-                active_index.dataset_ids,
+                target_index.dataset_ids,
                 registry_path=registry_path,
                 dataset_id=dataset_id,
             )
@@ -141,15 +139,13 @@ class SearchService:
         try:
             if top_k <= 0:
                 raise ValueError("top_k must be positive")
-            active_index = index_service.snapshot
-            if not active_index.ready:
-                raise RuntimeError("Index has not been built")
+            target_index = self._resolve_search_index(index_id)
 
             import numpy as np
 
             query_vector = np.asarray(query_vector_values, dtype="float32")
-            if query_vector.ndim != 1 or query_vector.shape[0] != active_index.dimension:
-                raise ValueError(f"query_vector dimension must be {active_index.dimension}")
+            if query_vector.ndim != 1 or query_vector.shape[0] != target_index.dimension:
+                raise ValueError(f"query_vector dimension must be {target_index.dimension}")
 
             fetch_k = max(top_k * 3, top_k + 50)
             distances, indices, bundle = index_service.search(query_vector, fetch_k, index_id)
@@ -208,6 +204,7 @@ class SearchService:
         *,
         registry_path: Path,
         dataset_id: str | None = None,
+        index_id: str | None = None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         request_log: dict[str, Any] = {
@@ -224,14 +221,13 @@ class SearchService:
                 raise ValueError("cell_id is required")
             if top_k <= 0:
                 raise ValueError("top_k must be positive")
-            if not index_service.snapshot.ready:
-                raise RuntimeError("Index has not been built; exact search still requires a loaded dataset")
+            target_index = self._resolve_search_index(index_id, dataset_id)
 
             import numpy as np
 
             query_snapshot, query_row_index = data_service.resolve_cell(
                 cell_id,
-                index_service.snapshot.dataset_ids,
+                target_index.dataset_ids,
                 registry_path=registry_path,
                 dataset_id=dataset_id,
             )
@@ -240,7 +236,7 @@ class SearchService:
             # 收集所有已加载数据集的向量
             all_vectors_parts = [query_snapshot.vectors.astype("float32", copy=False)]
             cell_refs = [(query_snapshot.dataset_id, i) for i in range(query_snapshot.cell_count)]
-            for sid in index_service.snapshot.dataset_ids:
+            for sid in target_index.dataset_ids:
                 if sid == query_snapshot.dataset_id:
                     continue
                 snap = data_service.get_snapshot(sid, registry_path=registry_path)
@@ -307,6 +303,7 @@ class SearchService:
             cell_id, top_k, log_dir,
             registry_path=registry_path,
             dataset_id=dataset_id,
+            index_id=index_id,
         )
 
         ann_hit_ids = {h["cell_id"] for h in ann_result["hits"]}
@@ -433,6 +430,15 @@ class SearchService:
     # ------------------------------------------------------------------
     # 内部方法
     # ------------------------------------------------------------------
+    def _resolve_search_index(self, index_id: str | None = None, dataset_id: str | None = None):
+        target_index = index_service.snapshot_for(index_id)
+        if not target_index.ready:
+            raise RuntimeError("Index has not been built")
+        if dataset_id and dataset_id not in target_index.dataset_ids:
+            index_label = target_index.index_id or index_id or "active index"
+            raise ValueError(f"dataset_id '{dataset_id}' is not included in index '{index_label}'")
+        return target_index
+
     def _collect_hits(
         self,
         distances,
@@ -449,6 +455,8 @@ class SearchService:
         scanned = 0
         for distance, idx in zip(distances.tolist(), indices.tolist()):
             if idx < 0:
+                continue
+            if int(idx) >= len(bundle.index_to_cell):
                 continue
             scanned += 1
             cell_ref = bundle.index_to_cell[int(idx)]

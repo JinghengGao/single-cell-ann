@@ -17,6 +17,8 @@ from backend.services.data_service import DatasetSnapshot, data_service
 
 @dataclass(frozen=True)
 class CellRef:
+    """FAISS 内部向量序号到原始数据集和行号的映射。"""
+
     dataset_id: str
     row_index: int
 
@@ -26,6 +28,8 @@ class CellRef:
 
 @dataclass
 class IndexSnapshot:
+    """索引运行状态快照，用于前端展示和索引元数据持久化。"""
+
     index_id: str | None = None
     status: str = "not_built"
     index_type: str = "IVF_FLAT"
@@ -70,6 +74,8 @@ class IndexSnapshot:
 
 @dataclass
 class IndexBundle:
+    """内存中的索引实体，包含 CPU/GPU 索引和反查细胞映射。"""
+
     snapshot: IndexSnapshot
     cpu_index: Any
     search_index: Any
@@ -78,6 +84,8 @@ class IndexBundle:
 
 
 class IndexService:
+    """负责 IVF_FLAT/HNSW 索引的构建、持久化、加载、切换和查询。"""
+
     def __init__(self) -> None:
         self._lock = RLock()
         self._snapshot = IndexSnapshot()
@@ -175,6 +183,7 @@ class IndexService:
         metric: str = "l2",
         registry_path: Path | None = None,
     ) -> dict[str, Any]:
+        """构建 FAISS IVF_FLAT 索引，支持单数据集或多数据集联合建库。"""
         with self._lock:
             runtime = inspect_faiss_runtime()
             if not runtime.available:
@@ -227,6 +236,7 @@ class IndexService:
         ef_search: int = 64,
         registry_path: Path | None = None,
     ) -> dict[str, Any]:
+        """构建 FAISS HNSW 索引，用于和 IVF_FLAT、Exact 检索做性能对比。"""
         with self._lock:
             runtime = inspect_faiss_runtime()
             if not runtime.available:
@@ -263,6 +273,7 @@ class IndexService:
             return status
 
     def search(self, query_vector: np.ndarray, top_k: int, index_id: str | None = None) -> tuple[np.ndarray, np.ndarray, IndexBundle]:
+        """在当前或指定索引中执行 Top-K 检索，返回距离、索引位置和索引上下文。"""
         bundle = self._active_bundle(index_id)
         query = np.ascontiguousarray(query_vector.reshape(1, -1).astype("float32", copy=False))
         # 当索引使用 cosine/ip 度量时，查询向量也需归一化
@@ -393,6 +404,7 @@ class IndexService:
         *,
         metric: str = "l2",
     ) -> IndexBundle:
+        """底层 IVF_FLAT 构建流程：训练、加向量、尝试 GPU 加速并保存磁盘文件。"""
         vector_count = int(vectors.shape[0])
         effective_nlist = max(1, min(int(nlist), vector_count))
         effective_nprobe = max(1, min(int(nprobe), effective_nlist))
@@ -473,6 +485,7 @@ class IndexService:
         *,
         metric: str = "l2",
     ) -> IndexBundle:
+        """底层 HNSW 构建流程：设置图参数、加向量并持久化索引。"""
         faiss_metric = self._faiss_metric(faiss, metric)
         vectors = self._normalize_for_metric(vectors, metric)
 
@@ -547,6 +560,7 @@ class IndexService:
 
     @staticmethod
     def _require_shared_dimension(snapshots: list[DatasetSnapshot]) -> int:
+        """联合索引要求所有数据集 PCA 向量维度一致。"""
         if not snapshots:
             raise RuntimeError("No datasets selected")
         dimensions = {snapshot.vector_dim for snapshot in snapshots}

@@ -2,6 +2,8 @@
 
 本项目是软件工程课程的单细胞相似细胞检索 Web 系统。系统围绕 `.h5ad` 单细胞数据构建，使用 `obsm/X_pca` 作为检索向量，使用 `obsm/X_umap` 作为二维可视化坐标，提供数据集管理、FAISS ANN 索引管理、条件 Top-K 检索、性能评估、UMAP 交互可视化和 AI 辅助分析。
 
+项目仓库：<https://github.com/JinghengGao/single-cell-ann>
+
 ## 当前状态
 
 - 基础功能：已覆盖结项要求中的可运行系统、条件检索、实验评估、可视化展示、数据集管理和动态索引管理。
@@ -51,13 +53,6 @@ python -c "import faiss; print(faiss.__version__)"
 ```powershell
 conda activate single-cell-ann
 python -m backend.app
-```
-
-也可以使用本地脚本：
-
-```powershell
-.\start_backend_local.ps1
-.\stop_backend.ps1
 ```
 
 前端：

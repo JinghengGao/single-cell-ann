@@ -2,6 +2,7 @@ import axios from "axios";
 
 const TOKEN_KEY = "single_cell_ann_token";
 
+// 前端所有 API 请求都通过同一个 axios 实例，便于统一配置 baseURL、超时和认证头。
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:5000/api",
   timeout: 120000,
@@ -14,6 +15,7 @@ export function getStoredToken() {
 }
 
 export function setAuthToken(token) {
+  // 登录态存放在 localStorage，刷新页面后会自动恢复 Authorization 请求头。
   if (token) {
     window.localStorage.setItem(TOKEN_KEY, token);
     api.defaults.headers.common.Authorization = `Bearer ${token}`;
@@ -115,6 +117,7 @@ export async function getCurrentDataset() {
 }
 
 export async function buildIndex({ datasetIds, mode, nlist, nprobe, indexType, metric, M, efConstruction, efSearch } = {}) {
+  // IVF_FLAT 和 HNSW 共用构建入口，HNSW 参数仅在选择 hnsw 时发送。
   const payload = {
     dataset_ids: datasetIds || [],
     mode: mode || "combined",
@@ -153,6 +156,7 @@ export async function getIndexStatus() {
 }
 
 export async function searchCells({ cellId, topK, datasetId, indexId, metadataFilters } = {}) {
+  // 元数据过滤条件展开为后端兼容的 cell_type/disease/AgeGroup/tissue 字段。
   const payload = {
     cell_id: cellId,
     top_k: topK,

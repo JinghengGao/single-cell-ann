@@ -64,6 +64,7 @@ function sameFilters(left = EMPTY_FILTERS, right = EMPTY_FILTERS) {
 }
 
 export function useWorkspace() {
+  // 工作台的跨页面状态集中在这个 Hook，保证检索、可视化、数据集和索引状态同步。
   const [health, setHealth] = useState(null);
   const [auth, setAuth] = useState(EMPTY_AUTH);
   const [datasets, setDatasets] = useState([]);
@@ -168,6 +169,7 @@ export function useWorkspace() {
   }, [searchResult]);
 
   async function runAction(name, action) {
+    // 统一处理按钮忙碌态和错误展示，避免各页面重复 try/catch。
     setBusy(name);
     setError("");
     try {
@@ -226,6 +228,7 @@ export function useWorkspace() {
   }
 
   async function fetchVisualization(datasetIds = selectedDatasetIds, overrides = {}) {
+    // requestId 用于丢弃过期响应，避免快速切换数据集时旧请求覆盖新视图。
     const requestId = ++visualRequestId.current;
     const nextDatasetIds = [...new Set(datasetIds.filter(Boolean))];
     if (!nextDatasetIds.length) {
@@ -280,6 +283,7 @@ export function useWorkspace() {
   }
 
   async function fetchWorkspaceStatus({ refreshVisual = true } = {}) {
+    // 首屏和手动刷新都会拉取后端健康、登录态、数据集、当前数据和索引状态。
     const [healthData, authData, datasetList, currentDataset, indexData] = await Promise.all([
       getHealth(),
       getCurrentUser(),
@@ -538,6 +542,7 @@ export function useWorkspace() {
   }
 
   async function handleBuildIndex() {
+    // 构建索引后立即同步激活索引、查询默认细胞和 UMAP 视图。
     return runAction("index", async () => {
       const { nlist: nextNlist, nprobe: nextNprobe } = normalizeIndexParameters();
       const data = await buildIndex({
@@ -600,6 +605,7 @@ export function useWorkspace() {
   }
 
   async function handleSearch() {
+    // 根据用户选择在 Cell ID、向量、Exact、ANN vs Exact 四种检索模式之间切换。
     return runAction("search", async () => {
       clearLlmAnalysis();
       setCompareResult(null);
@@ -689,6 +695,7 @@ export function useWorkspace() {
   }
 
   async function handleRagSearch() {
+    // RAG 入口先让后端解析自然语言，再基于真实 Top-K 证据生成回答。
     const question = ragQuestion.trim();
     if (!question) {
       setLlmError("请输入自然语言检索问题。");
@@ -747,6 +754,7 @@ export function useWorkspace() {
   }
 
   function handlePickVisualizationCell(point) {
+    // 图上点击细胞会回填查询框，形成“可视化 -> 检索”的交互闭环。
     const pickedCellId = point?.cell_id || point?.name;
     if (!pickedCellId) return;
     setVectorMode(false);

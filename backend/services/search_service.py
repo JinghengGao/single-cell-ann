@@ -14,6 +14,8 @@ _METADATA_FILTER_FIELDS = ("cell_type", "disease", "AgeGroup", "tissue")
 
 
 class SearchService:
+    """封装检索业务逻辑，统一输出 Top-K 结果、评测指标和查询日志。"""
+
     # ------------------------------------------------------------------
     # ANN 检索
     # ------------------------------------------------------------------
@@ -55,7 +57,7 @@ class SearchService:
                 dataset_id=dataset_id,
             )
             query_vector = query_snapshot.vectors[query_row_index]
-            # 多取一些候选以便条件过滤后仍能凑够 top_k
+            # 多取一批候选，避免条件过滤后 Top-K 数量不足。
             fetch_k = max(top_k * 3, top_k + 50)
             distances, indices, bundle = index_service.search(query_vector, fetch_k, index_id)
 
@@ -112,7 +114,7 @@ class SearchService:
             self._write_query_log(log_dir, request_log)
 
     # ------------------------------------------------------------------
-    # 精确检索 (暴力 L2)
+    # 向量检索
     # ------------------------------------------------------------------
     def search_by_vector(
         self,
@@ -233,7 +235,7 @@ class SearchService:
             )
             query_vector = query_snapshot.vectors[query_row_index].astype("float32", copy=False)
 
-            # 收集所有已加载数据集的向量
+            # 收集目标索引覆盖的所有数据集向量，用作 ANN 结果的精确基准。
             all_vectors_parts = [query_snapshot.vectors.astype("float32", copy=False)]
             cell_refs = [(query_snapshot.dataset_id, i) for i in range(query_snapshot.cell_count)]
             for sid in target_index.dataset_ids:
@@ -246,7 +248,7 @@ class SearchService:
             all_vectors = np.concatenate(all_vectors_parts, axis=0)
             diffs = all_vectors - query_vector
             l2_distances = np.sqrt(np.sum(diffs * diffs, axis=1))
-            # 排除查询细胞自身，多取一些以防去重
+            # 排除查询细胞自身，因此多取少量候选防止结果不足。
             sorted_indices = np.argsort(l2_distances)[: top_k + 2]
 
             hits = []
@@ -290,7 +292,7 @@ class SearchService:
         dataset_id: str | None = None,
         index_id: str | None = None,
     ) -> dict[str, Any]:
-        """同时执行 ANN 和精确检索，返回对比评测结果。"""
+        """同时执行 ANN 和精确检索，返回 Recall、重叠结果和加速比。"""
         started = time.perf_counter()
 
         ann_result = self.search_by_cell_id(
@@ -311,7 +313,7 @@ class SearchService:
         overlap_ids = ann_hit_ids & exact_hit_ids
         recall = len(overlap_ids) / len(exact_hit_ids) if exact_hit_ids else 0
 
-        # 按精确排名顺序检查 ANN 命中位置
+        # 按精确检索排名记录 ANN 命中位置，便于判断召回质量。
         exact_rank_map = {h["cell_id"]: h["rank"] for h in exact_result["hits"]}
         ann_overlap_ranks = sorted(exact_rank_map[cid] for cid in overlap_ids)
 

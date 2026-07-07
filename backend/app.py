@@ -18,9 +18,11 @@ from backend.routes.visualization import visualization_bp
 
 
 def create_app(config: type[Config] = Config) -> Flask:
+    """创建 Flask 应用并集中注册所有业务蓝图。"""
     app = Flask(__name__)
     app.config.from_object(config)
 
+    # 允许 Vite 前端跨端口访问后端 API；如果依赖缺失，则用 after_request 兜底补齐响应头。
     if CORS is not None:
         CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
 
@@ -35,6 +37,7 @@ def create_app(config: type[Config] = Config) -> Flask:
             response.headers.setdefault("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
         return response
 
+    # 各模块只暴露 /api 下的 REST 接口，前端通过统一 client 调用。
     app.register_blueprint(health_bp, url_prefix="/api")
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(datasets_bp, url_prefix="/api/datasets")
@@ -49,6 +52,7 @@ def create_app(config: type[Config] = Config) -> Flask:
 
     @app.errorhandler(Exception)
     def unhandled_error(error):
+        # 统一兜底异常格式，避免前端收到 HTML 错误页。
         app.logger.exception("Unhandled API error")
         return (
             jsonify(

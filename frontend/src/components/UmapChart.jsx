@@ -9,6 +9,7 @@ import { CHART_PALETTE, EXPRESSION_PALETTE } from "../constants";
 useEcharts([GridComponent, TooltipComponent, VisualMapComponent, DataZoomComponent, ToolboxComponent, ScatterChart, EffectScatterChart, LinesChart, CanvasRenderer]);
 
 function buildColorMap(stats, points) {
+  // 后端统计值决定分类颜色；新增类别按调色板顺序补齐，保证多数据集颜色稳定。
   const entries = stats?.by_color?.length ? stats.by_color : stats?.by_dataset || [];
   const map = new Map(entries.map((entry, index) => [entry.value, CHART_PALETTE[index % CHART_PALETTE.length]]));
   points.forEach((point) => {
@@ -55,6 +56,7 @@ export function UmapChart({
   variant = "workspace",
   emptyMessage,
 }) {
+  // ECharts 实例只在 points 或高亮结果变化时重建，兼顾大样本绘制性能和交互反馈。
   const ref = useRef(null);
   const visibleHits = useMemo(
     () => (hits || []).filter((hit) => hit.umap && matchesFilters(hit, filters)),
@@ -123,6 +125,7 @@ export function UmapChart({
         ]
       : [];
     const lineData =
+      // 查询细胞与 Top-K 命中之间画连线，直观展示邻域关系。
       visibleQueryCell?.umap && hitData.length
         ? hitData.map((hit) => ({
             coords: [visibleQueryCell.umap, hit.value],

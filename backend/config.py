@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 def _load_env_file_fallback(env_path: Path, *, override: bool) -> None:
+    """python-dotenv 不可用时的最小 .env 解析器。"""
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -33,6 +34,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 
 
 class Config:
+    # 路径配置统一从 .env 覆盖，便于演示时切换数据集、索引和运行日志目录。
     BASE_DIR = BASE_DIR
     DATA_DIR = Path(os.getenv("SCANN_DATA_DIR", BASE_DIR / "data"))
     DATA_PATH = Path(os.getenv("SCANN_DATA_PATH", BASE_DIR / "data" / "liver.h5ad"))
@@ -47,6 +49,7 @@ class Config:
     HOST = os.getenv("SCANN_HOST", "127.0.0.1")
     PORT = int(os.getenv("SCANN_PORT", "5000"))
     DEBUG = os.getenv("SCANN_DEBUG", "false").lower() in {"1", "true", "yes"}
+    # 开发环境下 Vite 端口可能自动递增，因此默认允许 5173-5176。
     DEFAULT_CORS_ORIGINS = ",".join(
         [
             "http://127.0.0.1:5173",
@@ -67,6 +70,7 @@ class Config:
     FAISS_NLIST = int(os.getenv("SCANN_FAISS_NLIST", "256"))
     FAISS_NPROBE = int(os.getenv("SCANN_FAISS_NPROBE", "16"))
 
+    # LLM 配置同时兼容云端 OpenAI-compatible 服务和本地 Ollama 服务。
     LLM_PROVIDER = os.getenv("SCANN_LLM_PROVIDER", "siliconflow")
     LLM_API_URL = os.getenv("SCANN_LLM_API_URL", "")
     LLM_API_KEY = os.getenv("SCANN_LLM_API_KEY", "")

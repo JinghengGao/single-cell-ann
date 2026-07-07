@@ -22,6 +22,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 @dataclass
 class DatasetRecord:
+    """数据集注册表中的轻量元信息，不直接持有大矩阵。"""
+
     dataset_id: str
     name: str
     data_path: str
@@ -71,6 +73,8 @@ class DatasetRecord:
 
 @dataclass
 class DatasetSnapshot:
+    """已加载数据集的内存快照，供检索、可视化和 RAG 共享使用。"""
+
     dataset_id: str = "liver"
     name: str = "Human pediatric liver"
     source: str = "local"
@@ -118,6 +122,8 @@ class DatasetSnapshot:
 
 
 class DataService:
+    """负责 .h5ad 数据集的扫描、注册、校验、加载和元数据读取。"""
+
     def __init__(self) -> None:
         self._lock = RLock()
         self._records: dict[str, DatasetRecord] = {}
@@ -157,6 +163,7 @@ class DataService:
         default_data_path: Path,
         registry_path: Path,
     ) -> dict[str, Any]:
+        """扫描默认数据目录、数据集库和上传目录，自动登记发现的 .h5ad 文件。"""
         with self._lock:
             self._load_registry(registry_path)
             discovered: list[Path] = []
@@ -178,6 +185,7 @@ class DataService:
             return {"count": len(registered), "datasets": registered}
 
     def upload_dataset(self, file_storage: FileStorage, upload_dir: Path, registry_path: Path) -> dict[str, Any]:
+        """保存用户上传的数据集，并写入注册表，后续再执行结构校验和加载。"""
         filename = secure_filename(file_storage.filename or "")
         if not filename:
             raise ValueError("file is required")
@@ -249,6 +257,7 @@ class DataService:
             return snapshot.summary()
 
     def validate_dataset(self, dataset_id: str, registry_path: Path) -> dict[str, Any]:
+        """检查数据集是否包含系统依赖的 PCA、UMAP 和细胞 ID 字段。"""
         with self._lock:
             record = self._get_record(dataset_id, registry_path)
             if record.status == "offline":
@@ -365,6 +374,7 @@ class DataService:
         registry_path: Path | None = None,
         load_if_needed: bool = True,
     ) -> DatasetSnapshot:
+        """获取指定数据集的内存快照，未加载时会按注册表路径懒加载。"""
         with self._lock:
             target_dataset_id = dataset_id or self._active_dataset_id
             if target_dataset_id and target_dataset_id in self._snapshots:
@@ -397,6 +407,7 @@ class DataService:
         dataset_id: str | None = None,
         registry_path: Path | None = None,
     ) -> dict[str, Any]:
+        """按行号返回细胞元数据，结果携带 dataset_id 以支持跨数据集展示。"""
         snapshot = self.get_snapshot(dataset_id, registry_path=registry_path)
         return self._metadata_for_snapshot(snapshot, idx)
 
@@ -454,6 +465,7 @@ class DataService:
         registry_path: Path,
         dataset_id: str | None = None,
     ) -> tuple[DatasetSnapshot, int]:
+        """在一个或多个数据集中定位 Cell ID，返回所属快照和行号。"""
         candidates = [dataset_id] if dataset_id else dataset_ids
         matches: list[tuple[DatasetSnapshot, int]] = []
         for candidate_dataset_id in candidates:
